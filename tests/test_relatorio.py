@@ -242,5 +242,120 @@ class WeeklyConversionTests(unittest.TestCase):
         self.assertEqual(rows[0]["taxa_conversao_atual"], 100.0)
 
 
+class RemainingConsolidationsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.local_tz = timezone(timedelta(hours=-3))
+        self.pipeline = {
+            "id": 123,
+            "name": "Comercial",
+            "_embedded": {
+                "statuses": [
+                    {"id": 10, "name": "Novo", "sort": 10},
+                    {"id": 20, "name": "Agendado", "sort": 20},
+                    {"id": 142, "name": "Serviço iniciado", "sort": 100},
+                    {"id": 143, "name": "Perdido", "sort": 110},
+                ]
+            },
+        }
+        self.users = {1: {"name": "Ana"}, 2: {"name": "Carlos"}}
+        self.reasons = [{"id": 50, "name": "Preço", "sort": 10}]
+
+    def ts(self, year, month, day, hour=12):
+        return int(
+            datetime(year, month, day, hour, tzinfo=self.local_tz).timestamp()
+        )
+
+    def test_movement_deduplicates_user_and_lead(self) -> None:
+        snapshot = relatorio.WeeklySnapshot(
+            pipeline=self.pipeline,
+            users=self.users,
+            leads=[],
+            events=[
+                {"created_at": self.ts(2026, 8, 17), "entity_id": 100, "created_by": 1, "type": "lead_status_changed"},
+                {"created_at": self.ts(2026, 8, 18), "entity_id": 100, "created_by": 1, "type": "common_note_added"},
+                {"created_at": self.ts(2026, 8, 18), "entity_id": 100, "created_by": 2, "type": "common_note_added"},
+                {"created_at": self.ts(2026, 8, 18), "entity_id": 101, "created_by": 0, "type": "lead_added"},
+            ],
+        )
+        rows, method = relatorio.build_weekly_movement_rows(
+            snapshot,
+            date(2026, 8, 17),
+            datetime(2026, 8, 20, tzinfo=self.local_tz),
+        )
+        self.assertEqual(sum(row["atendimentos_semana_atual"] for row in rows), 2)
+        self.assertEqual(rows[0]["leads_unicos_atual"], 1)
+        self.assertEqual(method["eventos_sem_usuario_excluidos_atual"], 1)
+
+    def test_weekly_new_leads_and_stage_totals_close(self) -> None:
+        leads = [
+            {"created_at": self.ts(2026, 8, 10), "responsible_user_id": 1, "status_id": 10},
+            {"created_at": self.ts(2026, 8, 17), "responsible_user_id": 1, "status_id": 143, "loss_reason_id": 50},
+            {"created_at": self.ts(2026, 8, 18), "responsible_user_id": 2, "status_id": 20},
+        ]
+        snapshot = relatorio.WeeklySnapshot(
+            pipeline=self.pipeline,
+            users=self.users,
+            leads=leads,
+            loss_reasons=self.reasons,
+        )
+        new_rows = relatorio.build_weekly_new_leads_rows(
+            snapshot, date(2026, 8, 17), datetime(2026, 8, 20, tzinfo=self.local_tz)
+        )
+        stage_rows = relatorio.build_consultant_stage_rows(
+            snapshot, date(2026, 8, 17), datetime(2026, 8, 20, tzinfo=self.local_tz)
+        )
+        self.assertEqual(sum(row["novos_leads_atual"] for row in new_rows), 2)
+        self.assertEqual(sum(row["quantidade_atual"] for row in stage_rows), 2)
+
+    def test_lost_composition_uses_lost_denominator(self) -> None:
+        snapshot = relatorio.WeeklySnapshot(
+            pipeline=self.pipeline,
+            users=self.users,
+            leads=[
+                {"created_at": self.ts(2026, 8, 17), "responsible_user_id": 1, "status_id": 143, "loss_reason_id": 50},
+                {"created_at": self.ts(2026, 8, 18), "responsible_user_id": 2, "status_id": 143, "loss_reason_id": None},
+                {"created_at": self.ts(2026, 8, 18), "responsible_user_id": 2, "status_id": 10},
+            ],
+            loss_reasons=self.reasons,
+        )
+        rows = relatorio.build_lost_composition_rows(
+            snapshot, date(2026, 8, 17), datetime(2026, 8, 20, tzinfo=self.local_tz)
+        )
+        populated = [row for row in rows if row["quantidade_atual"]]
+        self.assertEqual(len(populated), 2)
+        self.assertEqual(sum(row["percentual_atual"] for row in populated), 100.0)
+        self.assertEqual(populated[0]["total_perdidos_atual"], 2)
+
+    def test_monthly_weeks_and_summary_reconcile(self) -> None:
+        leads = [
+            {"created_at": self.ts(2026, 7, 1), "status_id": 142},
+            {"created_at": self.ts(2026, 7, 15), "status_id": 20},
+            {"created_at": self.ts(2026, 7, 31), "status_id": 143},
+        ]
+        snapshot = relatorio.MonthlySnapshot(
+            pipeline=self.pipeline,
+            users=self.users,
+            loss_reasons=self.reasons,
+            leads=leads,
+        )
+        extracted = datetime(2026, 8, 1, tzinfo=self.local_tz)
+        week_rows = relatorio.build_monthly_week_rows(
+            snapshot, "2026-07", date(2026, 7, 27), extracted
+        )
+        summary = relatorio.build_monthly_summary_rows(
+            snapshot, "2026-07", extracted
+        )[0]
+        self.assertEqual(sum(row["novos_leads"] for row in week_rows), 3)
+        self.assertEqual(summary["novos_leads"], 3)
+        self.assertEqual(
+            summary["servicos_iniciados"]
+            + summary["agendados"]
+            + summary["perdidos"]
+            + summary["em_andamento"],
+            3,
+        )
+        self.assertEqual(week_rows[0]["variacao_servicos_iniciados_pp"], "N/A")
+
+
 if __name__ == "__main__":
     unittest.main()

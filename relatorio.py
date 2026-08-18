@@ -7,9 +7,10 @@ import os
 import sys
 import tempfile
 import time
+import unicodedata
 from calendar import monthrange
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping, Sequence
@@ -32,6 +33,14 @@ IDENTIFICATION_FILENAME = "01_identificacao_periodo.csv"
 MONTHLY_DISTRIBUTION_FILENAME = "02_distribuicao_mensal_responsavel.csv"
 GLOBAL_STAGES_FILENAME = "03_numeros_globais_etapas.csv"
 WEEKLY_CONVERSION_FILENAME = "04_conversao_responsavel.csv"
+WEEKLY_MOVEMENT_FILENAME = "05_movimentacao_semanal.csv"
+MOVEMENT_METHOD_FILENAME = "06_nota_metodologica_movimentacao.csv"
+WEEKLY_NEW_LEADS_FILENAME = "07_novos_leads_semana.csv"
+CONSULTANT_STAGES_FILENAME = "08_etapas_por_consultor.csv"
+RESPONSE_TIME_FILENAME = "09_tempo_medio_resposta.csv"
+LOST_COMPOSITION_FILENAME = "11_composicao_leads_perdidos.csv"
+MONTHLY_WEEKS_FILENAME = "13_analise_quantitativa_mes.csv"
+MONTHLY_SUMMARY_FILENAME = "14_resumo_consolidado_mes.csv"
 MONTHLY_DISTRIBUTION_FIELDS = [
     "mes_referencia",
     "pipeline_id",
@@ -83,10 +92,142 @@ WEEKLY_CONVERSION_FIELDS = [
     "observacao_maturacao",
     "data_hora_extracao",
 ]
+WEEKLY_MOVEMENT_FIELDS = [
+    "responsavel_id",
+    "responsavel_nome",
+    "unidade_contagem",
+    "atendimentos_semana_anterior",
+    "atendimentos_semana_atual",
+    "variacao_absoluta",
+    "participacao_anterior",
+    "participacao_atual",
+    "variacao_pp",
+    "total_pares_usuario_lead_anterior",
+    "total_pares_usuario_lead_atual",
+    "leads_unicos_anterior",
+    "leads_unicos_atual",
+    "situacao_semana_atual",
+    "data_hora_extracao",
+]
+MOVEMENT_METHOD_FIELDS = [
+    "universo",
+    "unidade_contagem",
+    "fonte",
+    "atribuicao",
+    "eventos_considerados",
+    "eventos_sem_usuario_excluidos_anterior",
+    "eventos_sem_usuario_excluidos_atual",
+    "nota_comparabilidade",
+    "data_hora_extracao",
+]
+WEEKLY_NEW_LEADS_FIELDS = [
+    "pipeline_id",
+    "pipeline_nome",
+    "responsavel_id",
+    "responsavel_nome",
+    "novos_leads_anterior",
+    "novos_leads_atual",
+    "variacao_absoluta_responsavel",
+    "participacao_anterior",
+    "participacao_atual",
+    "variacao_pp",
+    "total_novos_leads_anterior",
+    "total_novos_leads_atual",
+    "variacao_total_absoluta",
+    "situacao_semana_atual",
+    "data_hora_extracao",
+]
+CONSULTANT_STAGES_FIELDS = [
+    "pipeline_id",
+    "pipeline_nome",
+    "responsavel_id",
+    "responsavel_nome",
+    "categoria_relatorio",
+    "status_id",
+    "etapa_crm",
+    "loss_reason_id",
+    "motivo_perda_crm",
+    "quantidade_anterior",
+    "percentual_anterior",
+    "quantidade_atual",
+    "percentual_atual",
+    "variacao_pp",
+    "total_responsavel_anterior",
+    "total_responsavel_atual",
+    "situacao_semana_atual",
+    "data_hora_extracao",
+]
+RESPONSE_TIME_FIELDS = [
+    "status_dado",
+    "motivo_indisponibilidade",
+    "responsavel_id",
+    "responsavel_nome",
+    "conversas_anterior",
+    "tempo_medio_minutos_anterior",
+    "conversas_atual",
+    "tempo_medio_minutos_atual",
+    "variacao_minutos",
+    "definicao",
+    "situacao_semana_atual",
+    "data_hora_extracao",
+]
+LOST_COMPOSITION_FIELDS = [
+    "pipeline_id",
+    "pipeline_nome",
+    "loss_reason_id",
+    "motivo_perda",
+    "quantidade_anterior",
+    "percentual_anterior",
+    "quantidade_atual",
+    "percentual_atual",
+    "variacao_pp",
+    "total_perdidos_anterior",
+    "total_perdidos_atual",
+    "situacao_semana_atual",
+    "data_hora_extracao",
+]
+MONTHLY_WEEKS_FIELDS = [
+    "mes_referencia",
+    "semana_numero",
+    "periodo_inicio",
+    "periodo_fim",
+    "semana_parcial_no_mes",
+    "novos_leads",
+    "servicos_iniciados",
+    "taxa_servicos_iniciados",
+    "variacao_servicos_iniciados_pp",
+    "agendados",
+    "taxa_agendados",
+    "variacao_agendados_pp",
+    "perdidos",
+    "taxa_perdidos",
+    "variacao_perdidos_pp",
+    "em_andamento",
+    "taxa_em_andamento",
+    "variacao_em_andamento_pp",
+    "data_hora_extracao",
+]
+MONTHLY_SUMMARY_FIELDS = [
+    "mes_referencia",
+    "pipeline_id",
+    "pipeline_nome",
+    "novos_leads",
+    "servicos_iniciados",
+    "taxa_servicos_iniciados",
+    "agendados",
+    "taxa_agendados",
+    "perdidos",
+    "taxa_perdidos",
+    "em_andamento",
+    "taxa_em_andamento",
+    "data_hora_extracao",
+]
 
 
 class KommoApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -188,10 +329,16 @@ class KommoReadOnlyClient:
                     time.sleep(min(max(delay, 0.5), 10.0))
                     continue
                 if exc.code == 401:
-                    raise KommoApiError("Token Kommo inválido, expirado ou revogado.") from exc
+                    raise KommoApiError(
+                        "Token Kommo inválido, expirado ou revogado.", 401
+                    ) from exc
                 if exc.code == 403:
-                    raise KommoApiError("A integração não possui permissão para esta consulta.") from exc
-                raise KommoApiError(f"A Kommo respondeu com HTTP {exc.code}.") from exc
+                    raise KommoApiError(
+                        "A integração não possui permissão para esta consulta.", 403
+                    ) from exc
+                raise KommoApiError(
+                    f"A Kommo respondeu com HTTP {exc.code}.", exc.code
+                ) from exc
             except URLError as exc:
                 self._last_request_at = time.monotonic()
                 if attempt + 1 < self._maximum_attempts:
@@ -229,6 +376,8 @@ class WeeklySnapshot:
     pipeline: dict[str, object]
     users: dict[int, dict[str, object]]
     leads: list[dict[str, object]]
+    loss_reasons: list[dict[str, object]] = field(default_factory=list)
+    events: list[dict[str, object]] = field(default_factory=list)
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
@@ -347,6 +496,10 @@ def weekly_conversion_path(week_start: date) -> Path:
         / week_start.isoformat()
         / WEEKLY_CONVERSION_FILENAME
     )
+
+
+def report_output_path(week_start: date, filename: str) -> Path:
+    return OUTPUT_ROOT / str(week_start.year) / week_start.isoformat() / filename
 
 
 def confirm_overwrite(path: Path, input_fn: Callable[[str], str] = input) -> bool:
@@ -511,6 +664,55 @@ def fetch_month_leads(
     )
 
 
+def fetch_period_events(
+    client: KommoReadOnlyClient,
+    period_start: date,
+    period_end_exclusive: date,
+    tz: tzinfo,
+    *,
+    entity: str | None = None,
+    event_type: str | None = None,
+) -> list[dict[str, object]]:
+    start_at = datetime.combine(period_start, datetime.min.time(), tzinfo=tz)
+    end_at = datetime.combine(period_end_exclusive, datetime.min.time(), tzinfo=tz)
+    params: dict[str, object] = {
+        "filter[created_at][from]": int(start_at.timestamp()),
+        "filter[created_at][to]": int(end_at.timestamp()) - 1,
+    }
+    if entity:
+        params["filter[entity]"] = entity
+    if event_type:
+        params["filter[type]"] = event_type
+    events = list(iter_kommo_collection(client, "/api/v4/events", "events", params))
+    return [
+        event
+        for event in events
+        if isinstance(event.get("created_at"), int)
+        and int(start_at.timestamp())
+        <= int(event["created_at"])
+        < int(end_at.timestamp())
+    ]
+
+
+def fetch_leads_by_ids(
+    client: KommoReadOnlyClient, lead_ids: Iterable[int]
+) -> dict[int, dict[str, object]]:
+    unique_ids = sorted(set(lead_ids))
+    leads: dict[int, dict[str, object]] = {}
+    for offset in range(0, len(unique_ids), 250):
+        batch = unique_ids[offset : offset + 250]
+        if not batch:
+            continue
+        payload = client.get_json(
+            "/api/v4/leads", {"filter[id][]": batch, "limit": 250}
+        )
+        for lead in embedded_collection(payload, "leads"):
+            lead_id = lead.get("id")
+            if isinstance(lead_id, int):
+                leads[lead_id] = lead
+    return leads
+
+
 def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
@@ -552,6 +754,7 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
         raise KommoApiError("O funil principal retornou um ID inválido.")
 
     users = fetch_users(client)
+    loss_reasons = fetch_loss_reasons(client)
     previous_week_start = week_start - timedelta(days=7)
     current_week_end_exclusive = week_start + timedelta(days=7)
     leads = list(
@@ -561,9 +764,37 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
             previous_week_start,
             current_week_end_exclusive,
             report_timezone(),
+            include_loss_reason=True,
         )
     )
-    return WeeklySnapshot(pipeline=pipeline, users=users, leads=leads)
+    events = fetch_period_events(
+        client,
+        previous_week_start,
+        current_week_end_exclusive,
+        report_timezone(),
+        entity="lead",
+    )
+    event_lead_ids = [
+        event_id
+        for event in events
+        for event_id in [event.get("entity_id")]
+        if isinstance(event_id, int)
+    ]
+    event_leads = fetch_leads_by_ids(client, event_lead_ids)
+    main_pipeline_events = [
+        event
+        for event in events
+        if isinstance(event.get("entity_id"), int)
+        and event_leads.get(int(event["entity_id"]), {}).get("pipeline_id")
+        == pipeline_id
+    ]
+    return WeeklySnapshot(
+        pipeline=pipeline,
+        users=users,
+        leads=leads,
+        loss_reasons=loss_reasons,
+        events=main_pipeline_events,
+    )
 
 
 def build_monthly_distribution_rows(
@@ -942,6 +1173,769 @@ def generate_weekly_conversion(
     return previous_total, current_total
 
 
+def display_user_name(
+    users: Mapping[int, Mapping[str, object]], responsible_id: int
+) -> str:
+    user = users.get(responsible_id)
+    if user is not None:
+        return str(user.get("name") or f"Usuário {responsible_id}")
+    if responsible_id == 0:
+        return "Sem responsável"
+    return f"Usuário não localizado (ID {responsible_id})"
+
+
+def weekly_bucket(timestamp: int, week_start: date) -> str | None:
+    event_date = datetime.fromtimestamp(timestamp, tz=report_timezone()).date()
+    if week_start - timedelta(days=7) <= event_date < week_start:
+        return "anterior"
+    if week_start <= event_date < week_start + timedelta(days=7):
+        return "atual"
+    return None
+
+
+def build_weekly_movement_rows(
+    snapshot: WeeklySnapshot,
+    week_start: date,
+    extracted_at: datetime,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    pairs: dict[str, set[tuple[int, int]]] = {"anterior": set(), "atual": set()}
+    unique_leads: dict[str, set[int]] = {"anterior": set(), "atual": set()}
+    excluded_events = {"anterior": 0, "atual": 0}
+    event_types: set[str] = set()
+
+    for event in snapshot.events:
+        created_at = event.get("created_at")
+        entity_id = event.get("entity_id")
+        created_by = event.get("created_by")
+        if not isinstance(created_at, int) or not isinstance(entity_id, int):
+            continue
+        bucket = weekly_bucket(created_at, week_start)
+        if bucket is None:
+            continue
+        event_type = event.get("type")
+        if isinstance(event_type, str):
+            event_types.add(event_type)
+        if not isinstance(created_by, int) or created_by not in snapshot.users:
+            excluded_events[bucket] += 1
+            continue
+        pairs[bucket].add((created_by, entity_id))
+        unique_leads[bucket].add(entity_id)
+
+    previous_counts: Counter[int] = Counter(user_id for user_id, _ in pairs["anterior"])
+    current_counts: Counter[int] = Counter(user_id for user_id, _ in pairs["atual"])
+    previous_total = sum(previous_counts.values())
+    current_total = sum(current_counts.values())
+    user_ids = set(previous_counts) | set(current_counts)
+    rows: list[dict[str, object]] = []
+    for user_id in sorted(
+        user_ids,
+        key=lambda value: (-current_counts[value], -previous_counts[value], value),
+    ):
+        previous_quantity = previous_counts[user_id]
+        current_quantity = current_counts[user_id]
+        previous_share: float | str = (
+            round(previous_quantity / previous_total * 100, 1)
+            if previous_total
+            else "N/C"
+        )
+        current_share: float | str = (
+            round(current_quantity / current_total * 100, 1)
+            if current_total
+            else "N/C"
+        )
+        variation: float | str = (
+            round(current_share - previous_share, 1)
+            if isinstance(previous_share, float) and isinstance(current_share, float)
+            else "N/C"
+        )
+        rows.append(
+            {
+                "responsavel_id": user_id,
+                "responsavel_nome": display_user_name(snapshot.users, user_id),
+                "unidade_contagem": "par_usuario_lead_distinto",
+                "atendimentos_semana_anterior": previous_quantity,
+                "atendimentos_semana_atual": current_quantity,
+                "variacao_absoluta": current_quantity - previous_quantity,
+                "participacao_anterior": previous_share,
+                "participacao_atual": current_share,
+                "variacao_pp": variation,
+                "total_pares_usuario_lead_anterior": previous_total,
+                "total_pares_usuario_lead_atual": current_total,
+                "leads_unicos_anterior": len(unique_leads["anterior"]),
+                "leads_unicos_atual": len(unique_leads["atual"]),
+                "situacao_semana_atual": week_status(week_start, extracted_at.date()),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+
+    method_row = {
+        "universo": "leads atualmente no funil principal com evento no período",
+        "unidade_contagem": "um lead por usuário por semana, mesmo com vários eventos",
+        "fonte": "GET /api/v4/events com entity=lead",
+        "atribuicao": "usuário registrado em created_by no evento",
+        "eventos_considerados": "|".join(sorted(event_types)),
+        "eventos_sem_usuario_excluidos_anterior": excluded_events["anterior"],
+        "eventos_sem_usuario_excluidos_atual": excluded_events["atual"],
+        "nota_comparabilidade": (
+            "O mesmo lead pode contar para mais de um usuário se ambos o movimentaram; "
+            "eventos de sistema e leads removidos ou fora do funil principal são excluídos."
+        ),
+        "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+    }
+    return rows, method_row
+
+
+def build_weekly_new_leads_rows(
+    snapshot: WeeklySnapshot,
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    previous_counts: Counter[int] = Counter()
+    current_counts: Counter[int] = Counter()
+    for lead in snapshot.leads:
+        created_at = lead.get("created_at")
+        if not isinstance(created_at, int):
+            continue
+        bucket = weekly_bucket(created_at, week_start)
+        responsible_value = lead.get("responsible_user_id")
+        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
+        if bucket == "anterior":
+            previous_counts[responsible_id] += 1
+        elif bucket == "atual":
+            current_counts[responsible_id] += 1
+
+    previous_total = sum(previous_counts.values())
+    current_total = sum(current_counts.values())
+    rows: list[dict[str, object]] = []
+    for responsible_id in sorted(
+        set(previous_counts) | set(current_counts),
+        key=lambda value: (-current_counts[value], -previous_counts[value], value),
+    ):
+        previous_quantity = previous_counts[responsible_id]
+        current_quantity = current_counts[responsible_id]
+        previous_share: float | str = (
+            round(previous_quantity / previous_total * 100, 1)
+            if previous_total
+            else "N/C"
+        )
+        current_share: float | str = (
+            round(current_quantity / current_total * 100, 1)
+            if current_total
+            else "N/C"
+        )
+        rows.append(
+            {
+                "pipeline_id": snapshot.pipeline.get("id", ""),
+                "pipeline_nome": snapshot.pipeline.get("name", ""),
+                "responsavel_id": responsible_id or "",
+                "responsavel_nome": display_user_name(snapshot.users, responsible_id),
+                "novos_leads_anterior": previous_quantity,
+                "novos_leads_atual": current_quantity,
+                "variacao_absoluta_responsavel": current_quantity - previous_quantity,
+                "participacao_anterior": previous_share,
+                "participacao_atual": current_share,
+                "variacao_pp": (
+                    round(current_share - previous_share, 1)
+                    if isinstance(previous_share, float)
+                    and isinstance(current_share, float)
+                    else "N/C"
+                ),
+                "total_novos_leads_anterior": previous_total,
+                "total_novos_leads_atual": current_total,
+                "variacao_total_absoluta": current_total - previous_total,
+                "situacao_semana_atual": week_status(week_start, extracted_at.date()),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+    return rows
+
+
+def build_dynamic_stage_categories(
+    pipeline: Mapping[str, object],
+    loss_reasons: Iterable[Mapping[str, object]],
+    leads: Iterable[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    lost_status_id = 143
+    statuses = pipeline_statuses(pipeline)
+    status_names = {
+        int(status["id"]): str(status.get("name") or f"Etapa {status['id']}")
+        for status in statuses
+        if isinstance(status.get("id"), int)
+    }
+    lost_name = status_names.get(lost_status_id, "Perdido")
+    ordered_reasons = list(loss_reasons)
+    reason_names = {
+        int(reason["id"]): str(reason.get("name") or f"Motivo {reason['id']}")
+        for reason in ordered_reasons
+        if isinstance(reason.get("id"), int)
+    }
+    categories: list[dict[str, object]] = []
+    keys: set[tuple[int, int | None]] = set()
+
+    def add(status_id: int, reason_id: int | None = None, reason_name: str = "") -> None:
+        key = (status_id, reason_id if status_id == lost_status_id else None)
+        if key in keys:
+            return
+        keys.add(key)
+        status_name = status_names.get(
+            status_id, f"Etapa não localizada (ID {status_id})"
+        )
+        if status_id == lost_status_id:
+            label = (
+                f"{status_name} — {reason_name}"
+                if reason_name
+                else f"{status_name} — indefinido/sem motivo"
+            )
+        else:
+            label = status_name
+        categories.append(
+            {
+                "key": key,
+                "status_id": status_id,
+                "status_name": status_name,
+                "reason_id": reason_id,
+                "reason_name": reason_name,
+                "label": label,
+            }
+        )
+
+    for status in statuses:
+        status_id = status.get("id")
+        if isinstance(status_id, int) and status_id != lost_status_id:
+            add(status_id)
+    if lost_status_id in status_names:
+        for reason in ordered_reasons:
+            reason_id = reason.get("id")
+            if isinstance(reason_id, int):
+                add(lost_status_id, reason_id, reason_names[reason_id])
+        add(lost_status_id)
+
+    for lead in leads:
+        status_value = lead.get("status_id")
+        status_id = status_value if isinstance(status_value, int) else 0
+        reason_value = lead.get("loss_reason_id")
+        reason_id = (
+            reason_value
+            if status_id == lost_status_id and isinstance(reason_value, int)
+            else None
+        )
+        key = (status_id, reason_id)
+        if key in keys:
+            continue
+        reason_name = ""
+        if status_id == lost_status_id and reason_id is not None:
+            reason_name = reason_names.get(reason_id) or lead_loss_reason_name(lead)
+            if not reason_name:
+                reason_name = f"Motivo não localizado (ID {reason_id})"
+        add(status_id, reason_id, reason_name)
+    return categories
+
+
+def build_consultant_stage_rows(
+    snapshot: WeeklySnapshot,
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    categories = build_dynamic_stage_categories(
+        snapshot.pipeline, snapshot.loss_reasons, snapshot.leads
+    )
+    counts: Counter[tuple[str, int, int, int | None]] = Counter()
+    totals: Counter[tuple[str, int]] = Counter()
+    for lead in snapshot.leads:
+        created_at = lead.get("created_at")
+        if not isinstance(created_at, int):
+            continue
+        bucket = weekly_bucket(created_at, week_start)
+        if bucket is None:
+            continue
+        responsible_value = lead.get("responsible_user_id")
+        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
+        status_value = lead.get("status_id")
+        status_id = status_value if isinstance(status_value, int) else 0
+        reason_value = lead.get("loss_reason_id")
+        reason_id = reason_value if status_id == 143 and isinstance(reason_value, int) else None
+        counts[(bucket, responsible_id, status_id, reason_id)] += 1
+        totals[(bucket, responsible_id)] += 1
+
+    responsible_ids = {
+        responsible_id for _, responsible_id in totals
+    }
+    rows: list[dict[str, object]] = []
+    for responsible_id in sorted(
+        responsible_ids,
+        key=lambda value: (-totals[("atual", value)], -totals[("anterior", value)], value),
+    ):
+        previous_total = totals[("anterior", responsible_id)]
+        current_total = totals[("atual", responsible_id)]
+        for category in categories:
+            status_id, reason_id = category["key"]
+            previous_quantity = counts[
+                ("anterior", responsible_id, status_id, reason_id)
+            ]
+            current_quantity = counts[("atual", responsible_id, status_id, reason_id)]
+            previous_rate: float | str = (
+                round(previous_quantity / previous_total * 100, 1)
+                if previous_total
+                else "N/C"
+            )
+            current_rate: float | str = (
+                round(current_quantity / current_total * 100, 1)
+                if current_total
+                else "N/C"
+            )
+            rows.append(
+                {
+                    "pipeline_id": snapshot.pipeline.get("id", ""),
+                    "pipeline_nome": snapshot.pipeline.get("name", ""),
+                    "responsavel_id": responsible_id or "",
+                    "responsavel_nome": display_user_name(
+                        snapshot.users, responsible_id
+                    ),
+                    "categoria_relatorio": category["label"],
+                    "status_id": status_id or "",
+                    "etapa_crm": category["status_name"],
+                    "loss_reason_id": reason_id or "",
+                    "motivo_perda_crm": category["reason_name"],
+                    "quantidade_anterior": previous_quantity,
+                    "percentual_anterior": previous_rate,
+                    "quantidade_atual": current_quantity,
+                    "percentual_atual": current_rate,
+                    "variacao_pp": (
+                        round(current_rate - previous_rate, 1)
+                        if isinstance(previous_rate, float)
+                        and isinstance(current_rate, float)
+                        else "N/C"
+                    ),
+                    "total_responsavel_anterior": previous_total,
+                    "total_responsavel_atual": current_total,
+                    "situacao_semana_atual": week_status(
+                        week_start, extracted_at.date()
+                    ),
+                    "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+                }
+            )
+    return rows
+
+
+def build_lost_composition_rows(
+    snapshot: WeeklySnapshot,
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    categories = [
+        category
+        for category in build_dynamic_stage_categories(
+            snapshot.pipeline, snapshot.loss_reasons, snapshot.leads
+        )
+        if category["status_id"] == 143
+    ]
+    counts: Counter[tuple[str, int | None]] = Counter()
+    totals: Counter[str] = Counter()
+    for lead in snapshot.leads:
+        if lead.get("status_id") != 143:
+            continue
+        created_at = lead.get("created_at")
+        if not isinstance(created_at, int):
+            continue
+        bucket = weekly_bucket(created_at, week_start)
+        if bucket is None:
+            continue
+        reason_value = lead.get("loss_reason_id")
+        reason_id = reason_value if isinstance(reason_value, int) else None
+        counts[(bucket, reason_id)] += 1
+        totals[bucket] += 1
+
+    rows: list[dict[str, object]] = []
+    for category in categories:
+        reason_id = category["reason_id"]
+        previous_quantity = counts[("anterior", reason_id)]
+        current_quantity = counts[("atual", reason_id)]
+        previous_rate: float | str = (
+            round(previous_quantity / totals["anterior"] * 100, 1)
+            if totals["anterior"]
+            else "N/C"
+        )
+        current_rate: float | str = (
+            round(current_quantity / totals["atual"] * 100, 1)
+            if totals["atual"]
+            else "N/C"
+        )
+        rows.append(
+            {
+                "pipeline_id": snapshot.pipeline.get("id", ""),
+                "pipeline_nome": snapshot.pipeline.get("name", ""),
+                "loss_reason_id": reason_id or "",
+                "motivo_perda": category["label"],
+                "quantidade_anterior": previous_quantity,
+                "percentual_anterior": previous_rate,
+                "quantidade_atual": current_quantity,
+                "percentual_atual": current_rate,
+                "variacao_pp": (
+                    round(current_rate - previous_rate, 1)
+                    if isinstance(previous_rate, float)
+                    and isinstance(current_rate, float)
+                    else "N/C"
+                ),
+                "total_perdidos_anterior": totals["anterior"],
+                "total_perdidos_atual": totals["atual"],
+                "situacao_semana_atual": week_status(week_start, extracted_at.date()),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+    return rows
+
+
+def build_response_time_rows(
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    definition = (
+        "Minutos entre a primeira mensagem recebida e a primeira resposta "
+        "de um usuário interno na conversa."
+    )
+    config = KommoConfig.from_environment()
+    client = KommoReadOnlyClient(config)
+    account = client.get_json("/api/v4/account")
+    if account is None or not isinstance(account.get("id"), int):
+        raise KommoApiError("Não foi possível validar a conta Kommo.")
+    users = fetch_users(client)
+    talk_events = fetch_period_events(
+        client,
+        week_start - timedelta(days=7),
+        week_start + timedelta(days=7),
+        report_timezone(),
+        event_type="talk_created",
+    )
+
+    if not talk_events:
+        return [
+            {
+                "status_dado": "sem_conversas_no_periodo",
+                "motivo_indisponibilidade": "Nenhuma conversa iniciada nas duas semanas.",
+                "responsavel_id": "",
+                "responsavel_nome": "",
+                "conversas_anterior": 0,
+                "tempo_medio_minutos_anterior": "N/C",
+                "conversas_atual": 0,
+                "tempo_medio_minutos_atual": "N/C",
+                "variacao_minutos": "N/C",
+                "definicao": definition,
+                "situacao_semana_atual": week_status(
+                    week_start, extracted_at.date()
+                ),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        ]
+
+    response_minutes: dict[str, dict[int, list[float]]] = {
+        "anterior": {},
+        "atual": {},
+    }
+    try:
+        for event in talk_events:
+            talk_id = event.get("entity_id")
+            if not isinstance(talk_id, int):
+                continue
+            messages = list(
+                iter_kommo_collection(
+                    client,
+                    f"/api/v4/talks/{talk_id}/messages",
+                    "messages",
+                )
+            )
+            messages.sort(
+                key=lambda message: (
+                    message.get("created_at")
+                    if isinstance(message.get("created_at"), int)
+                    else 0
+                )
+            )
+            first_incoming = next(
+                (
+                    message
+                    for message in messages
+                    if message.get("type") == "incoming"
+                    and isinstance(message.get("created_at"), int)
+                ),
+                None,
+            )
+            if first_incoming is None:
+                continue
+            incoming_at = int(first_incoming["created_at"])
+            first_response = None
+            for message in messages:
+                message_at = message.get("created_at")
+                author = message.get("author")
+                if (
+                    message.get("type") == "outgoing"
+                    and isinstance(message_at, int)
+                    and message_at >= incoming_at
+                    and isinstance(author, dict)
+                    and author.get("type") == "internal"
+                    and isinstance(author.get("user_id"), int)
+                ):
+                    first_response = message
+                    break
+            if first_response is None:
+                continue
+            bucket = weekly_bucket(incoming_at, week_start)
+            if bucket is None:
+                continue
+            author = first_response["author"]
+            user_id = int(author["user_id"])
+            minutes = (int(first_response["created_at"]) - incoming_at) / 60
+            response_minutes[bucket].setdefault(user_id, []).append(minutes)
+    except KommoApiError as exc:
+        if exc.status_code != 403:
+            raise
+        return [
+            {
+                "status_dado": "indisponivel",
+                "motivo_indisponibilidade": (
+                    "A integração não possui o escopo External chat history."
+                ),
+                "responsavel_id": "",
+                "responsavel_nome": "",
+                "conversas_anterior": "N/C",
+                "tempo_medio_minutos_anterior": "N/C",
+                "conversas_atual": "N/C",
+                "tempo_medio_minutos_atual": "N/C",
+                "variacao_minutos": "N/C",
+                "definicao": definition,
+                "situacao_semana_atual": week_status(
+                    week_start, extracted_at.date()
+                ),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        ]
+
+    user_ids = set(response_minutes["anterior"]) | set(response_minutes["atual"])
+    if not user_ids:
+        return [
+            {
+                "status_dado": "disponivel_sem_respostas_validas",
+                "motivo_indisponibilidade": (
+                    "Não foi encontrado par entrada/resposta interna nas conversas."
+                ),
+                "responsavel_id": "",
+                "responsavel_nome": "",
+                "conversas_anterior": 0,
+                "tempo_medio_minutos_anterior": "N/C",
+                "conversas_atual": 0,
+                "tempo_medio_minutos_atual": "N/C",
+                "variacao_minutos": "N/C",
+                "definicao": definition,
+                "situacao_semana_atual": week_status(
+                    week_start, extracted_at.date()
+                ),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        ]
+
+    rows: list[dict[str, object]] = []
+    for user_id in sorted(user_ids):
+        previous_values = response_minutes["anterior"].get(user_id, [])
+        current_values = response_minutes["atual"].get(user_id, [])
+        previous_average: float | str = (
+            round(sum(previous_values) / len(previous_values), 1)
+            if previous_values
+            else "N/C"
+        )
+        current_average: float | str = (
+            round(sum(current_values) / len(current_values), 1)
+            if current_values
+            else "N/C"
+        )
+        rows.append(
+            {
+                "status_dado": "disponivel",
+                "motivo_indisponibilidade": "",
+                "responsavel_id": user_id,
+                "responsavel_nome": display_user_name(users, user_id),
+                "conversas_anterior": len(previous_values),
+                "tempo_medio_minutos_anterior": previous_average,
+                "conversas_atual": len(current_values),
+                "tempo_medio_minutos_atual": current_average,
+                "variacao_minutos": (
+                    round(current_average - previous_average, 1)
+                    if isinstance(previous_average, float)
+                    and isinstance(current_average, float)
+                    else "N/C"
+                ),
+                "definicao": definition,
+                "situacao_semana_atual": week_status(
+                    week_start, extracted_at.date()
+                ),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+    return rows
+
+
+def normalize_label(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return "".join(character for character in normalized if not unicodedata.combining(character)).casefold()
+
+
+def scheduled_status_ids(pipeline: Mapping[str, object]) -> set[int]:
+    result: set[int] = set()
+    for status in pipeline_statuses(pipeline):
+        status_id = status.get("id")
+        name = normalize_label(str(status.get("name") or ""))
+        if isinstance(status_id, int) and "agend" in name:
+            result.add(status_id)
+    return result
+
+
+def classify_monthly_outcome(
+    lead: Mapping[str, object], scheduled_ids: set[int]
+) -> str:
+    status_id = lead.get("status_id")
+    if status_id == 142:
+        return "servicos_iniciados"
+    if status_id == 143:
+        return "perdidos"
+    if isinstance(status_id, int) and status_id in scheduled_ids:
+        return "agendados"
+    return "em_andamento"
+
+
+def monthly_week_segments(
+    month_start: date, next_month: date, reporting_weekday: int
+) -> list[tuple[date, date, bool]]:
+    anchor = month_start - timedelta(
+        days=(month_start.weekday() - reporting_weekday) % 7
+    )
+    segments: list[tuple[date, date, bool]] = []
+    while anchor < next_month:
+        full_end = anchor + timedelta(days=6)
+        segment_start = max(anchor, month_start)
+        segment_end = min(full_end, next_month - timedelta(days=1))
+        if segment_start <= segment_end:
+            segments.append(
+                (segment_start, segment_end, segment_start != anchor or segment_end != full_end)
+            )
+        anchor += timedelta(days=7)
+    return segments
+
+
+def build_monthly_week_rows(
+    snapshot: MonthlySnapshot,
+    month_reference: str,
+    reporting_week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    month_start, next_month = month_boundaries(month_reference)
+    segments = monthly_week_segments(
+        month_start, next_month, reporting_week_start.weekday()
+    )
+    scheduled_ids = scheduled_status_ids(snapshot.pipeline)
+    leads_by_date: dict[date, list[dict[str, object]]] = {}
+    for lead in snapshot.leads:
+        created_at = lead.get("created_at")
+        if not isinstance(created_at, int):
+            continue
+        created_date = datetime.fromtimestamp(
+            created_at, tz=report_timezone()
+        ).date()
+        leads_by_date.setdefault(created_date, []).append(lead)
+
+    provisional: list[dict[str, object]] = []
+    for number, (segment_start, segment_end, is_partial) in enumerate(segments, 1):
+        segment_leads = [
+            lead
+            for offset in range((segment_end - segment_start).days + 1)
+            for lead in leads_by_date.get(segment_start + timedelta(days=offset), [])
+        ]
+        outcomes: Counter[str] = Counter(
+            classify_monthly_outcome(lead, scheduled_ids) for lead in segment_leads
+        )
+        total = len(segment_leads)
+
+        def rate(key: str) -> float | str:
+            return round(outcomes[key] / total * 100, 1) if total else "N/C"
+
+        provisional.append(
+            {
+                "mes_referencia": month_reference,
+                "semana_numero": number,
+                "periodo_inicio": segment_start.isoformat(),
+                "periodo_fim": segment_end.isoformat(),
+                "semana_parcial_no_mes": "sim" if is_partial else "não",
+                "novos_leads": total,
+                "servicos_iniciados": outcomes["servicos_iniciados"],
+                "taxa_servicos_iniciados": rate("servicos_iniciados"),
+                "agendados": outcomes["agendados"],
+                "taxa_agendados": rate("agendados"),
+                "perdidos": outcomes["perdidos"],
+                "taxa_perdidos": rate("perdidos"),
+                "em_andamento": outcomes["em_andamento"],
+                "taxa_em_andamento": rate("em_andamento"),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+
+    metric_pairs = [
+        ("taxa_servicos_iniciados", "variacao_servicos_iniciados_pp"),
+        ("taxa_agendados", "variacao_agendados_pp"),
+        ("taxa_perdidos", "variacao_perdidos_pp"),
+        ("taxa_em_andamento", "variacao_em_andamento_pp"),
+    ]
+    for index, row in enumerate(provisional):
+        for metric, variation_field in metric_pairs:
+            if index == 0:
+                row[variation_field] = "N/A"
+                continue
+            previous = provisional[index - 1]
+            if (
+                row["semana_parcial_no_mes"] == "sim"
+                or previous["semana_parcial_no_mes"] == "sim"
+            ):
+                row[variation_field] = "N/C"
+                continue
+            current_rate = row[metric]
+            previous_rate = previous[metric]
+            row[variation_field] = (
+                round(current_rate - previous_rate, 1)
+                if isinstance(current_rate, float) and isinstance(previous_rate, float)
+                else "N/C"
+            )
+    return provisional
+
+
+def build_monthly_summary_rows(
+    snapshot: MonthlySnapshot,
+    month_reference: str,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    scheduled_ids = scheduled_status_ids(snapshot.pipeline)
+    outcomes: Counter[str] = Counter(
+        classify_monthly_outcome(lead, scheduled_ids) for lead in snapshot.leads
+    )
+    total = len(snapshot.leads)
+
+    def rate(key: str) -> float | str:
+        return round(outcomes[key] / total * 100, 1) if total else "N/C"
+
+    return [
+        {
+            "mes_referencia": month_reference,
+            "pipeline_id": snapshot.pipeline.get("id", ""),
+            "pipeline_nome": snapshot.pipeline.get("name", ""),
+            "novos_leads": total,
+            "servicos_iniciados": outcomes["servicos_iniciados"],
+            "taxa_servicos_iniciados": rate("servicos_iniciados"),
+            "agendados": outcomes["agendados"],
+            "taxa_agendados": rate("agendados"),
+            "perdidos": outcomes["perdidos"],
+            "taxa_perdidos": rate("perdidos"),
+            "em_andamento": outcomes["em_andamento"],
+            "taxa_em_andamento": rate("em_andamento"),
+            "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+        }
+    ]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Gera os dados de identificação do relatório semanal de desempenho comercial."
@@ -981,74 +1975,191 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     month_reference = closing_month(args.week_start)
     if not month_reference:
-        print("Itens 4.2 e 4.3 não aplicáveis: esta semana não fecha um mês.")
+        print("Itens mensais 4.2, 4.3, 4.13 e 4.14 não aplicáveis nesta semana.")
     else:
         _, next_month = month_boundaries(month_reference)
         if generated_at.date() < next_month:
             print(
-                f"Itens 4.2 e 4.3 ainda não aplicáveis: "
+                f"Itens mensais ainda não aplicáveis: "
                 f"o mês {month_reference} não terminou."
             )
         else:
-            monthly_destination = monthly_distribution_path(args.week_start)
-            generate_distribution = confirm_overwrite(monthly_destination)
-            if not generate_distribution:
-                print("Arquivo de distribuição mensal preservado.")
+            monthly_targets = {
+                "distribution": monthly_distribution_path(args.week_start),
+                "stages": global_stages_path(args.week_start),
+                "weeks": report_output_path(args.week_start, MONTHLY_WEEKS_FILENAME),
+                "summary": report_output_path(args.week_start, MONTHLY_SUMMARY_FILENAME),
+            }
+            monthly_selected: dict[str, bool] = {}
+            for key, destination in monthly_targets.items():
+                monthly_selected[key] = confirm_overwrite(destination)
+                if not monthly_selected[key]:
+                    print(f"Arquivo preservado: {destination}")
 
-            stages_destination = global_stages_path(args.week_start)
-            generate_stages = confirm_overwrite(stages_destination)
-            if not generate_stages:
-                print("Arquivo de números globais por etapa preservado.")
-
-            if generate_distribution or generate_stages:
+            if any(monthly_selected.values()):
                 print(
                     f"Consultando a Kommo em modo somente leitura "
                     f"para o mês {month_reference}..."
                 )
                 try:
                     snapshot = load_monthly_snapshot(month_reference)
-                    if generate_distribution:
+                    if monthly_selected["distribution"]:
                         lead_count = generate_monthly_distribution(
-                            monthly_destination, snapshot, month_reference, generated_at
+                            monthly_targets["distribution"],
+                            snapshot,
+                            month_reference,
+                            generated_at,
                         )
                         print(
-                            f"CSV gerado com sucesso: {monthly_destination} "
+                            f"CSV gerado com sucesso: {monthly_targets['distribution']} "
                             f"({lead_count} leads consolidados)"
                         )
-                    if generate_stages:
+                    if monthly_selected["stages"]:
                         stage_lead_count = generate_global_stages(
-                            stages_destination, snapshot, month_reference, generated_at
+                            monthly_targets["stages"],
+                            snapshot,
+                            month_reference,
+                            generated_at,
                         )
                         print(
-                            f"CSV gerado com sucesso: {stages_destination} "
+                            f"CSV gerado com sucesso: {monthly_targets['stages']} "
                             f"({stage_lead_count} leads consolidados)"
                         )
+                    if monthly_selected["weeks"]:
+                        month_week_rows = build_monthly_week_rows(
+                            snapshot, month_reference, args.week_start, generated_at
+                        )
+                        if sum(int(row["novos_leads"]) for row in month_week_rows) != len(
+                            snapshot.leads
+                        ):
+                            raise KommoApiError(
+                                "As semanas do mês não fecham com o total mensal."
+                            )
+                        write_csv_rows_atomic(
+                            monthly_targets["weeks"],
+                            MONTHLY_WEEKS_FIELDS,
+                            month_week_rows,
+                        )
+                        print(f"CSV gerado com sucesso: {monthly_targets['weeks']}")
+                    if monthly_selected["summary"]:
+                        summary_rows = build_monthly_summary_rows(
+                            snapshot, month_reference, generated_at
+                        )
+                        write_csv_rows_atomic(
+                            monthly_targets["summary"],
+                            MONTHLY_SUMMARY_FIELDS,
+                            summary_rows,
+                        )
+                        print(f"CSV gerado com sucesso: {monthly_targets['summary']}")
                 except (KommoApiError, OSError, ValueError) as exc:
                     print(f"Erro ao gerar o consolidado mensal: {exc}", file=sys.stderr)
                     return 1
 
     if week_status(args.week_start, generated_at.date()) == "futura":
-        print("Item 4.4 não aplicável: a semana informada é futura.")
+        print("Itens semanais não aplicáveis: a semana informada é futura.")
         return 0
 
-    conversion_destination = weekly_conversion_path(args.week_start)
-    if not confirm_overwrite(conversion_destination):
-        print("Arquivo de conversão por responsável preservado.")
-        return 0
+    weekly_targets = {
+        "conversion": weekly_conversion_path(args.week_start),
+        "movement": report_output_path(args.week_start, WEEKLY_MOVEMENT_FILENAME),
+        "movement_method": report_output_path(
+            args.week_start, MOVEMENT_METHOD_FILENAME
+        ),
+        "new_leads": report_output_path(args.week_start, WEEKLY_NEW_LEADS_FILENAME),
+        "consultant_stages": report_output_path(
+            args.week_start, CONSULTANT_STAGES_FILENAME
+        ),
+        "lost": report_output_path(args.week_start, LOST_COMPOSITION_FILENAME),
+    }
+    weekly_selected: dict[str, bool] = {}
+    for key, destination in weekly_targets.items():
+        weekly_selected[key] = confirm_overwrite(destination)
+        if not weekly_selected[key]:
+            print(f"Arquivo preservado: {destination}")
 
-    print("Consultando a Kommo em modo somente leitura para as duas semanas...")
-    try:
-        weekly_snapshot = load_weekly_snapshot(args.week_start)
-        previous_total, current_total = generate_weekly_conversion(
-            conversion_destination, weekly_snapshot, args.week_start, generated_at
-        )
-    except (KommoApiError, OSError, ValueError) as exc:
-        print(f"Erro ao gerar a conversão por responsável: {exc}", file=sys.stderr)
-        return 1
-    print(
-        f"CSV gerado com sucesso: {conversion_destination} "
-        f"({previous_total} leads anteriores; {current_total} leads atuais)"
-    )
+    if any(weekly_selected.values()):
+        print("Consultando a Kommo em modo somente leitura para as duas semanas...")
+        try:
+            weekly_snapshot = load_weekly_snapshot(args.week_start)
+            if weekly_selected["conversion"]:
+                previous_total, current_total = generate_weekly_conversion(
+                    weekly_targets["conversion"],
+                    weekly_snapshot,
+                    args.week_start,
+                    generated_at,
+                )
+                print(
+                    f"CSV gerado com sucesso: {weekly_targets['conversion']} "
+                    f"({previous_total} leads anteriores; {current_total} atuais)"
+                )
+            if weekly_selected["movement"] or weekly_selected["movement_method"]:
+                movement_rows, method_row = build_weekly_movement_rows(
+                    weekly_snapshot, args.week_start, generated_at
+                )
+                if weekly_selected["movement"]:
+                    write_csv_rows_atomic(
+                        weekly_targets["movement"],
+                        WEEKLY_MOVEMENT_FIELDS,
+                        movement_rows,
+                    )
+                    print(f"CSV gerado com sucesso: {weekly_targets['movement']}")
+                if weekly_selected["movement_method"]:
+                    write_csv_rows_atomic(
+                        weekly_targets["movement_method"],
+                        MOVEMENT_METHOD_FIELDS,
+                        [method_row],
+                    )
+                    print(
+                        f"CSV gerado com sucesso: {weekly_targets['movement_method']}"
+                    )
+            if weekly_selected["new_leads"]:
+                new_lead_rows = build_weekly_new_leads_rows(
+                    weekly_snapshot, args.week_start, generated_at
+                )
+                write_csv_rows_atomic(
+                    weekly_targets["new_leads"],
+                    WEEKLY_NEW_LEADS_FIELDS,
+                    new_lead_rows,
+                )
+                print(f"CSV gerado com sucesso: {weekly_targets['new_leads']}")
+            if weekly_selected["consultant_stages"]:
+                consultant_rows = build_consultant_stage_rows(
+                    weekly_snapshot, args.week_start, generated_at
+                )
+                write_csv_rows_atomic(
+                    weekly_targets["consultant_stages"],
+                    CONSULTANT_STAGES_FIELDS,
+                    consultant_rows,
+                )
+                print(
+                    f"CSV gerado com sucesso: {weekly_targets['consultant_stages']}"
+                )
+            if weekly_selected["lost"]:
+                lost_rows = build_lost_composition_rows(
+                    weekly_snapshot, args.week_start, generated_at
+                )
+                write_csv_rows_atomic(
+                    weekly_targets["lost"], LOST_COMPOSITION_FIELDS, lost_rows
+                )
+                print(f"CSV gerado com sucesso: {weekly_targets['lost']}")
+        except (KommoApiError, OSError, ValueError) as exc:
+            print(f"Erro ao gerar os consolidados semanais: {exc}", file=sys.stderr)
+            return 1
+
+    response_destination = report_output_path(args.week_start, RESPONSE_TIME_FILENAME)
+    if confirm_overwrite(response_destination):
+        print("Verificando a disponibilidade do tempo de primeira resposta...")
+        try:
+            response_rows = build_response_time_rows(args.week_start, generated_at)
+            write_csv_rows_atomic(
+                response_destination, RESPONSE_TIME_FIELDS, response_rows
+            )
+            print(f"CSV gerado com sucesso: {response_destination}")
+        except (KommoApiError, OSError, ValueError) as exc:
+            print(f"Erro ao verificar o tempo de resposta: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print(f"Arquivo preservado: {response_destination}")
     return 0
 
 

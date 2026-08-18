@@ -1,0 +1,34 @@
+# Prompt — Seção 4.15: auditoria de uso do CRM
+
+## Configuração
+
+- `PASTA_CSV`: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27`
+- `ARQUIVO_SAIDA`: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27\generativos\04_15_auditoria_crm.md`
+- `PDF_REFERENCIA_EDITORIAL`: `C:\Users\admin\Downloads\Rel. Desempenho Jul 27-31.pdf`
+
+## Tarefa
+
+Leia `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `08_etapas_por_consultor.csv` e `11_composicao_leads_perdidos.csv` em `PASTA_CSV`.
+
+Produza `## Auditoria de uso do CRM` somente até o nível sustentado pelos dados agregados.
+
+Procure sinais quantitativos de qualidade de cadastro ou operação, como:
+
+- perdas sem motivo ou com motivo genérico;
+- proporção relevante de eventos sem usuário atribuído;
+- diferenças entre movimentação e responsabilidade que exijam investigação;
+- concentração inesperada em etapas ou motivos de perda.
+
+Não afirme que um lead específico foi classificado incorretamente sem registro individual ou conversa que comprove isso. Não invente exemplos, capturas, IDs ou falas. Quando os CSVs permitirem apenas levantar um risco, use a formulação `sinal para auditoria`, nunca `erro confirmado`.
+
+Estruture em:
+
+- `### Sinais encontrados`
+- `### Verificações recomendadas`
+- `### Evidências necessárias para confirmar`
+
+O PDF serve apenas como referência do tipo de auditoria desejada. Os casos pessoais e números do PDF não podem ser reutilizados.
+
+## Regra de gravação
+
+Grave somente o Markdown final em `ARQUIVO_SAIDA`. Sobrescreva o arquivo existente e não crie duplicatas ou versões paralelas.
