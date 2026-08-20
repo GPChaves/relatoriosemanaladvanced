@@ -40,6 +40,31 @@ class FinalReportValidationTests(unittest.TestCase):
         with self.assertRaises(Exception):
             final.parse_week_start("2026-08-18")
 
+    def test_report_uses_readable_print_sizes(self) -> None:
+        styles = final.build_styles()
+        self.assertGreaterEqual(styles["body"].fontSize, 10.5)
+        self.assertGreaterEqual(styles["bullet"].fontSize, 10)
+        self.assertGreaterEqual(styles["table"].fontSize, 8)
+        self.assertGreaterEqual(styles["campaign_warning"].fontSize, 10)
+
+    def test_comparison_change_shows_count_and_percentage(self) -> None:
+        self.assertEqual(final.count_change(80, 56), "-24 (-30,0%)")
+        self.assertEqual(final.count_change(0, 1), "+1")
+
+    def test_response_time_uses_only_current_value_and_change_format(self) -> None:
+        self.assertEqual(final.minutes(8), "8 min")
+        self.assertEqual(final.minutes(-1, signed=True), "-1 min")
+        self.assertEqual(final.minutes(7, signed=True), "+7 min")
+
+    def test_dynamic_stage_labels_are_normalized(self) -> None:
+        self.assertTrue(final.label_key("Perdido — Orçamento").startswith("perdido"))
+        self.assertIn("servico iniciado", final.label_key("Serviço iniciado"))
+
+    def test_google_campaign_input_path_is_week_specific(self) -> None:
+        path = final.google_campaign_input_path(date(2026, 8, 10))
+        self.assertEqual(path.name, "campanha_google.csv")
+        self.assertEqual(path.parent.name, "2026-08-10")
+
 
 if __name__ == "__main__":
     unittest.main()

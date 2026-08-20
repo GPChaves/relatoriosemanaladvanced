@@ -6,11 +6,19 @@ import html
 import os
 import re
 import sys
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
+
+from processar_atendimentos import (
+    DEFAULT_INPUT_ROOT as DEFAULT_ATTENDANCE_INPUT_ROOT,
+    ManualAttendanceError,
+    attendance_input_dir,
+    process_attendances,
+)
 
 try:
     from reportlab.lib import colors
@@ -21,6 +29,7 @@ try:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import (
+        CondPageBreak,
         Flowable,
         KeepTogether,
         ListFlowable,
@@ -40,6 +49,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on local instal
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
+DEFAULT_GOOGLE_CAMPAIGN_INPUT_ROOT = ROOT / "entradas_manuais" / "campanha_google"
 PDF_FILENAME = "relatorio_desempenho_final.pdf"
 
 WEEKLY_CSV_FILES = (
@@ -228,6 +238,16 @@ def pp(value: str | int | float | None) -> str:
     return f"{sign}{decimal_br(number)} p.p."
 
 
+def minutes(value: str | int | float | None, *, signed: bool = False) -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"", "n/c", "nc", "n/a", "na"}:
+        return "N/C"
+    number = as_float(value)
+    sign = "+" if signed and number > 0 else ""
+    digits = 0 if number.is_integer() else 1
+    return f"{sign}{decimal_br(number, digits)} min"
+
+
 def signed_int(value: int) -> str:
     return f"{value:+d}" if value else "0"
 
@@ -267,8 +287,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportH1",
             parent=base["Heading1"],
             fontName=FONT_BOLD,
-            fontSize=19,
-            leading=23,
+            fontSize=20.5,
+            leading=25,
             textColor=NAVY,
             spaceBefore=5 * mm,
             spaceAfter=3 * mm,
@@ -278,8 +298,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportH2",
             parent=base["Heading2"],
             fontName=FONT_BOLD,
-            fontSize=14,
-            leading=18,
+            fontSize=15.5,
+            leading=19.5,
             textColor=NAVY_2,
             spaceBefore=4 * mm,
             spaceAfter=2 * mm,
@@ -289,8 +309,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportH3",
             parent=base["Heading3"],
             fontName=FONT_BOLD,
-            fontSize=11.2,
-            leading=14,
+            fontSize=12.2,
+            leading=15.5,
             textColor=BLUE,
             spaceBefore=3 * mm,
             spaceAfter=1.5 * mm,
@@ -300,27 +320,55 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportBody",
             parent=base["BodyText"],
             fontName=FONT,
-            fontSize=9.4,
-            leading=13.3,
+            fontSize=10.6,
+            leading=15,
             textColor=INK,
             spaceAfter=2.5 * mm,
+            allowWidows=0,
+            allowOrphans=0,
         ),
         "bullet": ParagraphStyle(
             "ReportBullet",
             parent=base["BodyText"],
             fontName=FONT,
-            fontSize=9.2,
-            leading=12.7,
+            fontSize=10.3,
+            leading=14.4,
             textColor=INK,
             leftIndent=0,
             spaceAfter=1 * mm,
+        ),
+        "bullet_item": ParagraphStyle(
+            "ReportBulletItem",
+            parent=base["BodyText"],
+            fontName=FONT,
+            fontSize=10.3,
+            leading=14.4,
+            textColor=INK,
+            leftIndent=9 * mm,
+            firstLineIndent=-5 * mm,
+            spaceAfter=1.3 * mm,
+            allowWidows=0,
+            allowOrphans=0,
+        ),
+        "number_item": ParagraphStyle(
+            "ReportNumberItem",
+            parent=base["BodyText"],
+            fontName=FONT,
+            fontSize=10.3,
+            leading=14.4,
+            textColor=INK,
+            leftIndent=10 * mm,
+            firstLineIndent=-6 * mm,
+            spaceAfter=1.3 * mm,
+            allowWidows=0,
+            allowOrphans=0,
         ),
         "note": ParagraphStyle(
             "ReportNote",
             parent=base["BodyText"],
             fontName=FONT_ITALIC,
-            fontSize=8,
-            leading=10.5,
+            fontSize=9,
+            leading=12,
             textColor=MUTED,
             backColor=LIGHT,
             borderColor=LINE,
@@ -329,12 +377,35 @@ def build_styles() -> dict[str, ParagraphStyle]:
             spaceBefore=1.5 * mm,
             spaceAfter=3 * mm,
         ),
+        "campaign_subtitle": ParagraphStyle(
+            "CampaignSubtitle",
+            parent=base["BodyText"],
+            fontName=FONT_BOLD,
+            fontSize=11.2,
+            leading=14,
+            textColor=MUTED,
+            spaceAfter=6 * mm,
+        ),
+        "campaign_warning": ParagraphStyle(
+            "CampaignWarning",
+            parent=base["BodyText"],
+            fontName=FONT,
+            fontSize=10.4,
+            leading=14.5,
+            textColor=INK,
+            backColor=colors.HexColor("#FFF2F0"),
+            borderColor=CORAL,
+            borderWidth=1,
+            borderPadding=9,
+            spaceBefore=5 * mm,
+            spaceAfter=3 * mm,
+        ),
         "source": ParagraphStyle(
             "ReportSource",
             parent=base["BodyText"],
             fontName=FONT,
-            fontSize=6.8,
-            leading=8.5,
+            fontSize=7.3,
+            leading=9,
             textColor=MUTED,
             spaceBefore=1.3 * mm,
             spaceAfter=2.5 * mm,
@@ -343,8 +414,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportTable",
             parent=base["BodyText"],
             fontName=FONT,
-            fontSize=7.4,
-            leading=9.2,
+            fontSize=8.2,
+            leading=10.2,
             textColor=INK,
             alignment=TA_LEFT,
         ),
@@ -352,8 +423,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportTableHeader",
             parent=base["BodyText"],
             fontName=FONT_BOLD,
-            fontSize=7.2,
-            leading=8.8,
+            fontSize=8,
+            leading=9.8,
             textColor=WHITE,
             alignment=TA_LEFT,
         ),
@@ -361,8 +432,8 @@ def build_styles() -> dict[str, ParagraphStyle]:
             "ReportCenter",
             parent=base["BodyText"],
             fontName=FONT,
-            fontSize=9,
-            leading=12,
+            fontSize=10.2,
+            leading=14,
             alignment=TA_CENTER,
             textColor=INK,
         ),
@@ -394,13 +465,13 @@ class KpiGrid(Flowable):
             self.canv.setFillColor(accent)
             self.canv.roundRect(x, self.height - 4, card_width, 4, 4, fill=1, stroke=0)
             self.canv.setFillColor(MUTED)
-            self.canv.setFont(FONT_BOLD, 7.2)
+            self.canv.setFont(FONT_BOLD, 7.8)
             self.canv.drawString(x + 8, self.height - 17, label.upper()[:28])
             self.canv.setFillColor(NAVY)
-            self.canv.setFont(FONT_BOLD, 18)
+            self.canv.setFont(FONT_BOLD, 19)
             self.canv.drawString(x + 8, self.height - 38, value[:18])
             self.canv.setFillColor(MUTED)
-            self.canv.setFont(FONT, 7.1)
+            self.canv.setFont(FONT, 7.6)
             self.canv.drawString(x + 8, 8, detail[:34])
 
 
@@ -449,7 +520,13 @@ def table_flowable(
 
 
 def add_source(story: list[Flowable], styles: dict[str, ParagraphStyle], *names: str) -> None:
-    story.append(Paragraph(f"Fonte: {', '.join(names)}", styles["source"]))
+    # Os arquivos de apoio são validados antes da geração, mas não aparecem
+    # na versão entregue ao cliente.
+    return None
+
+
+def movement_is_available(rows: list[dict[str, str]]) -> bool:
+    return bool(rows) and rows[0].get("status_dado", "disponivel") != "indisponivel"
 
 
 def add_section_title(story: list[Flowable], styles: dict[str, ParagraphStyle], title: str) -> None:
@@ -498,16 +575,15 @@ def markdown_flowables(
                 output.append(Spacer(1, 2 * mm))
             continue
         if re.match(r"^[-*]\s+", stripped):
-            items: list[ListItem] = []
             while index < len(lines) and re.match(r"^\s*[-*]\s+", lines[index]):
                 item_text = re.sub(r"^\s*[-*]\s+", "", lines[index]).strip()
-                items.append(ListItem(Paragraph(inline_markup(item_text), styles["bullet"])))
+                output.append(
+                    Paragraph(f"•&nbsp;&nbsp;{inline_markup(item_text)}", styles["bullet_item"])
+                )
                 index += 1
-            output.append(ListFlowable(items, bulletType="bullet", leftIndent=14, bulletFontName=FONT))
             output.append(Spacer(1, 1.5 * mm))
             continue
         if re.match(r"^\d+\.\s+", stripped):
-            items = []
             while index < len(lines):
                 if not lines[index].strip():
                     next_index = index + 1
@@ -519,10 +595,17 @@ def markdown_flowables(
                     break
                 if not re.match(r"^\s*\d+\.\s+", lines[index]):
                     break
-                item_text = re.sub(r"^\s*\d+\.\s+", "", lines[index]).strip()
-                items.append(ListItem(Paragraph(inline_markup(item_text), styles["bullet"])))
+                numbered = lines[index].strip()
+                match = re.match(r"^(\d+)\.\s+(.*)$", numbered)
+                if not match:
+                    break
+                output.append(
+                    Paragraph(
+                        f"<b>{match.group(1)}</b>&nbsp;&nbsp;{inline_markup(match.group(2))}",
+                        styles["number_item"],
+                    )
+                )
                 index += 1
-            output.append(ListFlowable(items, bulletType="1", leftIndent=18, bulletFontName=FONT_BOLD))
             output.append(Spacer(1, 1.5 * mm))
             continue
         if stripped.startswith(">"):
@@ -559,8 +642,8 @@ def executive_summary(
     previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
     current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
     lead_delta = current_leads - previous_leads
-    previous_total = sum(as_int(row.get("total_leads_anterior")) for row in conversion)
-    current_total = sum(as_int(row.get("total_leads_atual")) for row in conversion)
+    previous_total = previous_leads
+    current_total = current_leads
     previous_services = sum(as_int(row.get("servicos_iniciados_anterior")) for row in conversion)
     current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
     previous_rate = previous_services / previous_total * 100 if previous_total else 0
@@ -569,29 +652,32 @@ def executive_summary(
     previous_lost = as_int(losses[0].get("total_perdidos_anterior")) if losses else 0
     current_lost = as_int(losses[0].get("total_perdidos_atual")) if losses else 0
     leading_loss = max(losses, key=lambda row: as_int(row.get("quantidade_atual")), default={})
-    movement_previous = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if movement else 0
-    movement_current = as_int(movement[0].get("total_pares_usuario_lead_atual")) if movement else 0
+    has_movement = movement_is_available(movement)
+    movement_previous = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if has_movement else 0
+    movement_current = as_int(movement[0].get("total_pares_usuario_lead_atual")) if has_movement else 0
+    previous_open = max(0, previous_total - previous_services - previous_lost)
+    current_open = max(0, current_total - current_services - current_lost)
 
     bullets = [
         (
-            f"<b>Entrada:</b> {current_leads} novos leads na semana, "
+            f"<b>Novos contatos:</b> {current_leads} leads na semana, "
             f"{abs(lead_delta)} {'a menos' if lead_delta < 0 else 'a mais' if lead_delta > 0 else 'sem alteração'} "
             f"que os {previous_leads} da semana anterior."
         ),
         (
-            f"<b>Conversão observada:</b> {current_services} serviços iniciados em "
+            f"<b>Serviços iniciados:</b> {current_services} em "
             f"{current_total} leads ({decimal_br(current_rate)}%), variação de {pp(rate_delta)}."
         ),
         (
             f"<b>Perdas:</b> {current_lost} leads perdidos, contra {previous_lost}; "
             f"o motivo mais frequente foi {html.escape(leading_loss.get('motivo_perda', 'não identificado'))}."
         ),
-        (
-            f"<b>Operação registrada:</b> {movement_current} pares usuário-lead movimentados, "
-            f"ante {movement_previous}. A métrica indica atividade no CRM, não qualidade do atendimento."
-        ),
     ]
-    flowables: list[Flowable] = [Paragraph("Executive Summary", styles["h1"])]
+    if has_movement:
+        bullets.append(
+            f"<b>Atividade registrada:</b> {movement_current} movimentações, ante {movement_previous}."
+        )
+    flowables: list[Flowable] = [Paragraph("Resumo da semana", styles["h1"])]
     flowables.append(
         ListFlowable(
             [ListItem(Paragraph(item, styles["bullet"])) for item in bullets],
@@ -605,191 +691,230 @@ def executive_summary(
         ("Novos leads", str(current_leads), f"{signed_int(lead_delta)} vs. semana anterior"),
         ("Serviços iniciados", f"{decimal_br(current_rate)}%", pp(rate_delta)),
         ("Leads perdidos", str(current_lost), f"{signed_int(current_lost - previous_lost)} casos"),
-        ("Movimentações", str(movement_current), f"{signed_int(movement_current - movement_previous)} pares"),
+        ("Ainda em aberto", str(current_open), f"{signed_int(current_open - previous_open)} casos"),
     ]
     return flowables, cards
 
 
-def add_weekly_tables(
+def label_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
+def count_change(previous: int, current: int) -> str:
+    difference = current - previous
+    if not previous:
+        return signed_int(difference)
+    percentage = difference / previous * 100
+    sign = "+" if percentage > 0 else ""
+    return f"{signed_int(difference)} ({sign}{decimal_br(percentage)}%)"
+
+
+def add_weekly_comparison(
+    story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
+) -> None:
+    leads = read_csv(week_dir / "07_novos_leads_semana.csv")
+    conversion = read_csv(week_dir / "04_conversao_responsavel.csv")
+    movement = read_csv(week_dir / "05_movimentacao_semanal.csv")
+    losses = read_csv(week_dir / "11_composicao_leads_perdidos.csv")
+
+    previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
+    current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
+    previous_services = sum(as_int(row.get("servicos_iniciados_anterior")) for row in conversion)
+    current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
+    previous_lost = as_int(losses[0].get("total_perdidos_anterior")) if losses else 0
+    current_lost = as_int(losses[0].get("total_perdidos_atual")) if losses else 0
+    previous_rate = previous_services / previous_leads * 100 if previous_leads else 0
+    current_rate = current_services / current_leads * 100 if current_leads else 0
+    previous_lost_rate = previous_lost / previous_leads * 100 if previous_leads else 0
+    current_lost_rate = current_lost / current_leads * 100 if current_leads else 0
+    previous_open = max(0, previous_leads - previous_services - previous_lost)
+    current_open = max(0, current_leads - current_services - current_lost)
+    has_movement = movement_is_available(movement)
+    previous_unique = as_int(movement[0].get("leads_unicos_anterior")) if has_movement else 0
+    current_unique = as_int(movement[0].get("leads_unicos_atual")) if has_movement else 0
+    previous_movements = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if has_movement else 0
+    current_movements = as_int(movement[0].get("total_pares_usuario_lead_atual")) if has_movement else 0
+
+    add_section_title(story, styles, "1. Comparação geral da semana")
+    story.append(
+        Paragraph(
+            "Esta tabela reúne entrada e resultados para comparar os dois períodos de forma rápida.",
+            styles["body"],
+        )
+    )
+    overview_rows = [
+        ["Novos leads", previous_leads, current_leads, count_change(previous_leads, current_leads)],
+        ["Serviços iniciados", previous_services, current_services, count_change(previous_services, current_services)],
+        ["Taxa de serviço iniciado", pct(previous_rate), pct(current_rate), pp(current_rate - previous_rate)],
+        ["Leads perdidos", previous_lost, current_lost, count_change(previous_lost, current_lost)],
+        ["Taxa de perdas", pct(previous_lost_rate), pct(current_lost_rate), pp(current_lost_rate - previous_lost_rate)],
+        ["Ainda em aberto", previous_open, current_open, count_change(previous_open, current_open)],
+    ]
+    if has_movement:
+        overview_rows.extend(
+            [
+                ["Leads únicos movimentados", previous_unique, current_unique, count_change(previous_unique, current_unique)],
+                ["Registros de movimentação", previous_movements, current_movements, count_change(previous_movements, current_movements)],
+            ]
+        )
+    story.append(
+        table_flowable(
+            ["Indicador", "Semana anterior", "Semana atual", "Mudança"],
+            overview_rows,
+            styles,
+            [70 * mm, 32 * mm, 32 * mm, 32 * mm],
+        )
+    )
+    add_source(
+        story,
+        styles,
+        "04_conversao_responsavel.csv",
+        "05_movimentacao_semanal.csv",
+        "07_novos_leads_semana.csv",
+        "11_composicao_leads_perdidos.csv",
+    )
+
+
+def add_consultant_comparison(
     story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
 ) -> None:
     conversion = read_csv(week_dir / "04_conversao_responsavel.csv")
-    add_section_title(story, styles, "4.4 Conversão por responsável")
-    story.append(
-        Paragraph(
-            "A tabela compara coortes de entrada; as taxas usam o estado observado na data da extração e podem mudar com a maturação.",
-            styles["body"],
-        )
-    )
-    rows = [
-        [
-            short_name(row.get("responsavel_nome", "")),
-            row.get("total_leads_anterior", ""),
-            pct(row.get("taxa_conversao_anterior")),
-            row.get("total_leads_atual", ""),
-            pct(row.get("taxa_conversao_atual")),
-            pp(row.get("variacao_pp")),
-        ]
-        for row in conversion
-    ]
-    story.append(
-        table_flowable(
-            ["Responsável", "Leads ant.", "Conv. ant.", "Leads atual", "Conv. atual", "Variação"],
-            rows,
-            styles,
-            [42 * mm, 23 * mm, 25 * mm, 24 * mm, 25 * mm, 27 * mm],
-        )
-    )
-    add_source(story, styles, "04_conversao_responsavel.csv")
-
-    movement = read_csv(week_dir / "05_movimentacao_semanal.csv")
-    add_section_title(story, styles, "4.5 Movimentação na última semana")
-    story.append(
-        Paragraph(
-            "Movimentação representa pares distintos de usuário e lead com eventos registrados, e não o número de mensagens ou a qualidade comercial.",
-            styles["body"],
-        )
-    )
-    movement_rows = [
-        [
-            short_name(row.get("responsavel_nome", "")),
-            row.get("atendimentos_semana_anterior", ""),
-            pct(row.get("participacao_anterior")),
-            row.get("atendimentos_semana_atual", ""),
-            pct(row.get("participacao_atual")),
-            pp(row.get("variacao_pp")),
-        ]
-        for row in movement
-    ]
-    story.append(
-        table_flowable(
-            ["Usuário", "Pares ant.", "Part. ant.", "Pares atual", "Part. atual", "Variação"],
-            movement_rows,
-            styles,
-            [42 * mm, 23 * mm, 24 * mm, 24 * mm, 25 * mm, 28 * mm],
-        )
-    )
-    add_source(story, styles, "05_movimentacao_semanal.csv")
-
-    methodology = read_csv(week_dir / "06_nota_metodologica_movimentacao.csv")
-    if methodology:
-        row = methodology[0]
-        story.append(Paragraph("4.6 Nota metodológica", styles["h2"]))
-        note = (
-            f"{row.get('unidade_contagem', '')}. {row.get('nota_comparabilidade', '')} "
-            f"Eventos sem usuário excluídos: {row.get('eventos_sem_usuario_excluidos_anterior', '0')} "
-            f"na semana anterior e {row.get('eventos_sem_usuario_excluidos_atual', '0')} na atual."
-        )
-        story.append(Paragraph(inline_markup(note), styles["note"]))
-
     leads = read_csv(week_dir / "07_novos_leads_semana.csv")
-    add_section_title(story, styles, "4.7 Novos leads na semana")
-    lead_rows = [
-        [
-            short_name(row.get("responsavel_nome", "")),
-            row.get("novos_leads_anterior", ""),
-            pct(row.get("participacao_anterior")),
-            row.get("novos_leads_atual", ""),
-            pct(row.get("participacao_atual")),
-            signed_int(as_int(row.get("variacao_absoluta_responsavel"))),
-        ]
-        for row in leads
+    movement = read_csv(week_dir / "05_movimentacao_semanal.csv")
+    stages = read_csv(week_dir / "08_etapas_por_consultor.csv")
+    consultants = [row.get("responsavel_nome", "Não identificado") for row in conversion]
+    leads_by_name = {row.get("responsavel_nome", ""): row for row in leads}
+    conversion_by_name = {row.get("responsavel_nome", ""): row for row in conversion}
+    movement_by_name = {row.get("responsavel_nome", ""): row for row in movement}
+    stage_by_name_category = {
+        (row.get("responsavel_nome", ""), row.get("categoria_relatorio", "")): row
+        for row in stages
+    }
+
+    categories: list[str] = []
+    for row in stages:
+        category = row.get("categoria_relatorio", "")
+        if category and category not in categories:
+            categories.append(category)
+    loss_categories = [category for category in categories if label_key(category).startswith("perdido")]
+    active_categories = [
+        category
+        for category in categories
+        if category not in loss_categories
+        and "servico iniciado" not in label_key(category)
+        and any(
+            as_int(stage_by_name_category.get((name, category), {}).get("quantidade_anterior"))
+            or as_int(stage_by_name_category.get((name, category), {}).get("quantidade_atual"))
+            for name in consultants
+        )
     ]
+
+    def count_cells(previous: int, current: int) -> list[str]:
+        return [str(previous), str(current), signed_int(current - previous)]
+
+    rows: list[list[object]] = []
+    values: list[str] = []
+    for name in consultants:
+        row = leads_by_name.get(name, {})
+        values.extend(count_cells(as_int(row.get("novos_leads_anterior")), as_int(row.get("novos_leads_atual"))))
+    rows.append(["Novos leads", *values])
+
+    values = []
+    for name in consultants:
+        row = leads_by_name.get(name, {})
+        values.extend([pct(row.get("participacao_anterior")), pct(row.get("participacao_atual")), pp(row.get("variacao_pp"))])
+    rows.append(["Parte dos novos leads", *values])
+
+    values = []
+    for name in consultants:
+        row = conversion_by_name.get(name, {})
+        values.extend(count_cells(as_int(row.get("servicos_iniciados_anterior")), as_int(row.get("servicos_iniciados_atual"))))
+    rows.append(["Serviços iniciados", *values])
+
+    values = []
+    for name in consultants:
+        row = conversion_by_name.get(name, {})
+        values.extend([pct(row.get("taxa_conversao_anterior")), pct(row.get("taxa_conversao_atual")), pp(row.get("variacao_pp"))])
+    rows.append(["Taxa de serviço iniciado", *values])
+
+    for category in active_categories:
+        values = []
+        for name in consultants:
+            row = stage_by_name_category.get((name, category), {})
+            values.extend(count_cells(as_int(row.get("quantidade_anterior")), as_int(row.get("quantidade_atual"))))
+        rows.append([category, *values])
+
+    values = []
+    for name in consultants:
+        previous = sum(as_int(stage_by_name_category.get((name, category), {}).get("quantidade_anterior")) for category in loss_categories)
+        current = sum(as_int(stage_by_name_category.get((name, category), {}).get("quantidade_atual")) for category in loss_categories)
+        values.extend(count_cells(previous, current))
+    rows.append(["Perdas totais", *values])
+
+    for category in loss_categories:
+        values = []
+        for name in consultants:
+            row = stage_by_name_category.get((name, category), {})
+            values.extend(count_cells(as_int(row.get("quantidade_anterior")), as_int(row.get("quantidade_atual"))))
+        rows.append([category, *values])
+
+    has_movement = movement_is_available(movement)
+    if has_movement:
+        values = []
+        for name in consultants:
+            row = movement_by_name.get(name, {})
+            values.extend(count_cells(as_int(row.get("atendimentos_semana_anterior")), as_int(row.get("atendimentos_semana_atual"))))
+        rows.append(["Atendimentos movimentados", *values])
+
+    add_section_title(story, styles, "2. Comparação dos consultores")
     story.append(
-        table_flowable(
-            ["Responsável", "Leads ant.", "Part. ant.", "Leads atual", "Part. atual", "Variação"],
-            lead_rows,
-            styles,
-            [42 * mm, 23 * mm, 24 * mm, 24 * mm, 25 * mm, 28 * mm],
+        Paragraph(
+            "As colunas colocam os consultores lado a lado e mostram como os leads avançaram em cada período.",
+            styles["body"],
         )
     )
-    add_source(story, styles, "07_novos_leads_semana.csv")
+    headers = ["Indicador"]
+    for name in consultants:
+        label = short_name(name)
+        headers.extend([f"{label} ant.", f"{label} atual", "Mud."])
+    first_width = 52 * mm
+    remaining = (CONTENT_WIDTH - first_width) / max(1, len(headers) - 1)
+    story.append(table_flowable(headers, rows, styles, [first_width] + [remaining] * (len(headers) - 1)))
 
-
-def add_consultant_section(
-    story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
-) -> None:
-    add_section_title(story, styles, "4.8 Análise por consultor")
-    stage_rows = read_csv(week_dir / "08_etapas_por_consultor.csv")
-    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for row in stage_rows:
-        grouped[row.get("responsavel_nome", "Não identificado")].append(row)
-    for responsible, rows in grouped.items():
-        visible = [
-            row
-            for row in rows
-            if as_int(row.get("quantidade_anterior")) or as_int(row.get("quantidade_atual"))
-        ]
-        story.append(Paragraph(short_name(responsible), styles["h2"]))
-        table_rows = [
-            [
-                row.get("categoria_relatorio", ""),
-                row.get("quantidade_atual", ""),
-                pct(row.get("percentual_anterior")),
-                pct(row.get("percentual_atual")),
-                pp(row.get("variacao_pp")),
-            ]
-            for row in visible
-        ]
-        story.append(
-            table_flowable(
-                ["Etapa", "Qtd. atual", "% anterior", "% atual", "Variação"],
-                table_rows,
-                styles,
-                [65 * mm, 22 * mm, 27 * mm, 25 * mm, 27 * mm],
-            )
+    generic_movement = [row for row in movement if has_movement and row.get("responsavel_nome", "") not in consultants]
+    if generic_movement:
+        details = "; ".join(
+            f"{short_name(row.get('responsavel_nome', ''))}: {row.get('atendimentos_semana_anterior', '0')} → {row.get('atendimentos_semana_atual', '0')}"
+            for row in generic_movement
         )
-        story.append(Spacer(1, 2 * mm))
-    add_source(story, styles, "08_etapas_por_consultor.csv")
-    story.extend(markdown_flowables(load_markdown(week_dir, "04_08_leitura_consultores.md"), styles))
-
-
-def add_response_and_losses(
-    story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
-) -> None:
-    add_section_title(story, styles, "4.9 Tempo médio de resposta")
-    response = read_csv(week_dir / "09_tempo_medio_resposta.csv")
-    if response and response[0].get("status_dado") == "indisponivel":
         story.append(
             Paragraph(
-                inline_markup(
-                    f"Dado indisponível: {response[0].get('motivo_indisponibilidade', 'motivo não informado')}"
-                ),
+                f"<b>Sem consultor definido:</b> {html.escape(details)}.",
                 styles["note"],
             )
         )
-    elif response:
-        response_rows = [
-            [
-                short_name(row.get("responsavel_nome", "")),
-                row.get("tempo_medio_minutos_anterior", ""),
-                row.get("tempo_medio_minutos_atual", ""),
-                row.get("variacao_minutos", ""),
-            ]
-            for row in response
-        ]
-        story.append(
-            table_flowable(
-                ["Responsável", "Min. anterior", "Min. atual", "Variação"],
-                response_rows,
-                styles,
-                [65 * mm, 33 * mm, 33 * mm, 35 * mm],
-            )
-        )
-    add_source(story, styles, "09_tempo_medio_resposta.csv")
+    add_source(
+        story,
+        styles,
+        "04_conversao_responsavel.csv",
+        "05_movimentacao_semanal.csv",
+        "07_novos_leads_semana.csv",
+        "08_etapas_por_consultor.csv",
+    )
 
-    add_section_title(story, styles, "4.10 Mudanças significativas")
-    story.extend(markdown_flowables(load_markdown(week_dir, "04_10_mudancas_significativas.md"), styles))
-    add_source(story, styles, "04_10_mudancas_significativas.md")
 
-    losses = read_csv(week_dir / "11_composicao_leads_perdidos.csv")
-    add_section_title(story, styles, "4.11 Composição dos leads perdidos")
+def add_losses_and_response(
+    story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
+) -> None:
+    add_section_title(story, styles, "3. Motivos de perda")
     story.append(
         Paragraph(
-            "As participações usam como denominador o total de leads perdidos de cada semana.",
+            "A tabela mostra quantidade e percentual sobre todos os leads perdidos de cada semana.",
             styles["body"],
         )
     )
+    losses = read_csv(week_dir / "11_composicao_leads_perdidos.csv")
     loss_rows = [
         [
             row.get("motivo_perda", ""),
@@ -803,7 +928,7 @@ def add_response_and_losses(
     ]
     story.append(
         table_flowable(
-            ["Motivo", "Qtd. ant.", "% ant.", "Qtd. atual", "% atual", "Variação"],
+            ["Motivo", "Qtd. ant.", "% ant.", "Qtd. atual", "% atual", "Mudança"],
             loss_rows,
             styles,
             [58 * mm, 21 * mm, 22 * mm, 22 * mm, 22 * mm, 26 * mm],
@@ -811,11 +936,39 @@ def add_response_and_losses(
     )
     add_source(story, styles, "11_composicao_leads_perdidos.csv")
 
+    story.append(Paragraph("Tempo até a primeira resposta", styles["h2"]))
+    response = read_csv(week_dir / "09_tempo_medio_resposta.csv")
+    if response and response[0].get("status_dado") == "indisponivel":
+        story.append(
+            Paragraph(
+                inline_markup(f"Tempo até a primeira resposta indisponível: {response[0].get('motivo_indisponibilidade', 'motivo não informado')}"),
+                styles["note"],
+            )
+        )
+    elif response:
+        response_rows = [
+            [
+                short_name(row.get("responsavel_nome", "")),
+                minutes(row.get("tempo_medio_minutos_atual")),
+                minutes(row.get("variacao_minutos"), signed=True),
+            ]
+            for row in response
+        ]
+        story.append(
+            table_flowable(
+                ["Responsável", "Tempo atual", "Mudança"],
+                response_rows,
+                styles,
+                [72 * mm, 48 * mm, 48 * mm],
+            )
+        )
+    add_source(story, styles, "09_tempo_medio_resposta.csv")
+
 
 def add_monthly_section(
     story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
 ) -> None:
-    add_section_title(story, styles, "Fechamento mensal")
+    add_section_title(story, styles, "4. Resultado do mês")
     summary = read_csv(week_dir / "14_resumo_consolidado_mes.csv")
     if summary:
         row = summary[0]
@@ -829,48 +982,67 @@ def add_monthly_section(
         story.append(Spacer(1, 4 * mm))
 
     distribution = read_csv(week_dir / "02_distribuicao_mensal_responsavel.csv")
-    story.append(Paragraph("4.2 Distribuição mensal por responsável", styles["h2"]))
-    dist_rows = [
-        [
-            short_name(row.get("responsavel_nome", "")),
-            row.get("quantidade_leads", ""),
-            pct(row.get("participacao_percentual")),
-            row.get("usuario_ativo", ""),
-        ]
-        for row in distribution
-    ]
-    story.append(
-        table_flowable(
-            ["Responsável", "Leads", "Participação", "Usuário ativo"],
-            dist_rows,
-            styles,
-            [76 * mm, 28 * mm, 32 * mm, 30 * mm],
-        )
-    )
-    add_source(story, styles, "02_distribuicao_mensal_responsavel.csv")
-
     global_rows = read_csv(week_dir / "03_numeros_globais_etapas.csv")
-    aggregate: dict[str, int] = defaultdict(int)
-    total = 0
+    responsible_names = [row.get("responsavel_nome", "Não identificado") for row in distribution]
+    responsible_totals = {
+        row.get("responsavel_nome", "Não identificado"): as_int(row.get("quantidade_leads"))
+        for row in distribution
+    }
+    category_order: list[str] = []
+    matrix: dict[tuple[str, str], int] = defaultdict(int)
     for row in global_rows:
-        amount = as_int(row.get("quantidade_leads"))
-        aggregate[row.get("categoria_relatorio", "Não identificado")] += amount
-        total = max(total, as_int(row.get("total_geral")))
-    visible = [(name, amount) for name, amount in aggregate.items() if amount]
-    visible.sort(key=lambda pair: (-pair[1], pair[0]))
-    story.append(Paragraph("4.3 Números globais por etapa", styles["h2"]))
+        category = row.get("categoria_relatorio", "Não identificado")
+        responsible = row.get("responsavel_nome", "Não identificado")
+        matrix[(category, responsible)] += as_int(row.get("quantidade_leads"))
+        if category not in category_order:
+            category_order.append(category)
+    visible_categories = [
+        category
+        for category in category_order
+        if sum(matrix[(category, responsible)] for responsible in responsible_names)
+    ]
+    total_month = sum(responsible_totals.values())
+    stage_matrix_rows: list[list[object]] = []
+    for category in visible_categories:
+        category_total = sum(matrix[(category, responsible)] for responsible in responsible_names)
+        cells: list[str] = []
+        for responsible in responsible_names:
+            amount = matrix[(category, responsible)]
+            denominator = responsible_totals.get(responsible, 0)
+            cells.append(f"{amount} ({decimal_br(amount / denominator * 100 if denominator else 0)}%)")
+        stage_matrix_rows.append(
+            [
+                category,
+                *cells,
+                f"{category_total} ({decimal_br(category_total / total_month * 100 if total_month else 0)}%)",
+            ]
+        )
+    stage_matrix_rows.append(
+        ["Total", *[str(responsible_totals.get(name, 0)) for name in responsible_names], str(total_month)]
+    )
+
+    story.append(Paragraph("4.1 Etapas por responsável", styles["h2"]))
     story.append(
-        table_flowable(
-            ["Etapa ou motivo", "Quantidade", "% do mês"],
-            [[name, amount, f"{decimal_br(amount / total * 100 if total else 0)}%"] for name, amount in visible],
-            styles,
-            [92 * mm, 34 * mm, 40 * mm],
+        Paragraph(
+            "Cada célula mostra quantidade e percentual dentro da carteira daquela coluna. A última coluna mostra o total da oficina.",
+            styles["body"],
         )
     )
-    add_source(story, styles, "03_numeros_globais_etapas.csv")
+    stage_headers = ["Etapa ou motivo", *[short_name(name) for name in responsible_names], "Total"]
+    first_width = 64 * mm
+    other_width = (CONTENT_WIDTH - first_width) / max(1, len(stage_headers) - 1)
+    story.append(
+        table_flowable(
+            stage_headers,
+            stage_matrix_rows,
+            styles,
+            [first_width] + [other_width] * (len(stage_headers) - 1),
+        )
+    )
+    add_source(story, styles, "02_distribuicao_mensal_responsavel.csv", "03_numeros_globais_etapas.csv")
 
     monthly = read_csv(week_dir / "13_analise_quantitativa_mes.csv")
-    story.append(Paragraph("4.13 Evolução semanal do mês", styles["h2"]))
+    story.append(Paragraph("4.2 Resultado por semana", styles["h2"]))
     monthly_rows = [
         [
             f"S{row.get('semana_numero', '')} ({human_date(row.get('periodo_inicio', ''))[:5]}-{human_date(row.get('periodo_fim', ''))[:5]})",
@@ -898,19 +1070,74 @@ def add_monthly_section(
 def add_management_narratives(
     story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
 ) -> None:
-    add_section_title(story, styles, "4.12 Leitura gerencial da semana")
+    add_section_title(story, styles, "5. O que a semana mostra")
     story.extend(markdown_flowables(load_markdown(week_dir, "04_12_leitura_gerencial_semana.md"), styles))
     add_source(story, styles, "04_12_leitura_gerencial_semana.md")
 
     for number, title, filename in (
-        ("4.15", "Auditoria de uso do CRM", "04_15_auditoria_crm.md"),
-        ("4.16", "Amostragem qualitativa dos atendimentos", "04_16_amostragem_qualitativa.md"),
-        ("4.17", "Diferenças observadas entre os consultores", "04_17_diferencas_consultores.md"),
-        ("4.18", "Limitações e próximos passos", "04_18_limitacoes_proximos_passos.md"),
+        ("6.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
+        ("7.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
+        ("8.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
     ):
+        # A seção final precisa de uma página quase inteira; as demais só não
+        # devem começar quando restar pouco espaço.
+        minimum_space = 180 * mm if filename == "04_18_limitacoes_proximos_passos.md" else 70 * mm
+        story.append(CondPageBreak(minimum_space))
         add_section_title(story, styles, f"{number} {title}")
         story.extend(markdown_flowables(load_markdown(week_dir, filename), styles))
-        add_source(story, styles, filename)
+        if filename != "04_18_limitacoes_proximos_passos.md":
+            add_source(story, styles, filename)
+
+
+def google_campaign_input_path(week_start: date) -> Path:
+    return DEFAULT_GOOGLE_CAMPAIGN_INPUT_ROOT / week_start.isoformat() / "campanha_google.csv"
+
+
+def load_google_campaign(week_start: date) -> dict[str, str] | None:
+    path = google_campaign_input_path(week_start)
+    if not path.is_file():
+        return None
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter=";"), None)
+    if not row:
+        raise ValueError(f"Entrada da campanha do Google vazia: {path}")
+    return {key: (value or "").strip() for key, value in row.items() if key}
+
+
+def add_google_campaign_page(
+    story: list[Flowable], campaign: dict[str, str], styles: dict[str, ParagraphStyle]
+) -> None:
+    story.append(PageBreak())
+    story.append(Paragraph("Desempenho da Campanha do Google", styles["h1"]))
+    story.append(Paragraph("semana 9-15 agosto", styles["campaign_subtitle"]))
+
+    cards = [
+        ("Conversões", campaign["conversoes"], "ações registradas"),
+        ("Taxa de conversão", campaign["taxa_conversao"], "dos cliques"),
+        ("Custo por conversão", campaign["custo_conversao"], "valor médio"),
+        ("Investimento", campaign["custo"], "total no período"),
+    ]
+    story.append(KpiGrid(cards, [BLUE, LIME, TEAL, CORAL]))
+    story.append(Spacer(1, 6 * mm))
+
+    rows = [
+        ["Impressões", campaign["impressoes"]],
+        ["Cliques", campaign["cliques"]],
+        ["CTR", campaign["ctr"]],
+        ["CPC médio", campaign["cpc_medio"]],
+        ["Conversões", campaign["conversoes"]],
+        ["Taxa de conversão", campaign["taxa_conversao"]],
+        ["Custo por conversão", campaign["custo_conversao"]],
+        ["Investimento", campaign["custo"]],
+    ]
+    story.append(table_flowable(["Indicador", "Resultado"], rows, styles, [105 * mm, 63 * mm]))
+    story.append(
+        Paragraph(
+            "<b>Atenção ao interpretar as conversões:</b> as metas de conversão foram alteradas neste período. "
+            "Por causa desse erro, não houve nenhuma conversão de domingo até quarta-feira.",
+            styles["campaign_warning"],
+        )
+    )
 
 
 def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
@@ -933,7 +1160,7 @@ def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
     canvas.drawString(20 * mm, height - 101 * mm, "desempenho comercial")
     canvas.setFont(FONT, 13)
     canvas.setFillColor(colors.HexColor("#C9D7E3"))
-    canvas.drawString(20 * mm, height - 116 * mm, "Leitura executiva do funil de vendas")
+    canvas.drawString(20 * mm, height - 116 * mm, "Resumo claro da semana de vendas")
 
     start = identification.get("data_inicial", "")
     end = identification.get("data_final", "")
@@ -955,7 +1182,7 @@ def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
 
     canvas.setFillColor(colors.HexColor("#9FB3C5"))
     canvas.setFont(FONT, 8)
-    canvas.drawString(20 * mm, 24 * mm, "Gerado automaticamente a partir dos outputs validados da Kommo")
+    canvas.drawString(20 * mm, 24 * mm, "Relatório de acompanhamento comercial")
     canvas.drawRightString(width - 20 * mm, 24 * mm, datetime.now().strftime("%d/%m/%Y %H:%M"))
     canvas.restoreState()
 
@@ -989,17 +1216,20 @@ def generate_pdf(week_dir: Path, output_path: Path, week_start: date) -> None:
     story.append(Spacer(1, 4 * mm))
     story.append(
         Paragraph(
-            "Os indicadores semanais comparam leads criados nas duas semanas e refletem seu estado na data de extração. Variações de taxa são apresentadas em pontos percentuais.",
+            "A comparação usa a mesma quantidade de dias nos dois períodos. Mudanças de taxa aparecem em pontos percentuais.",
             styles["note"],
         )
     )
 
-    add_weekly_tables(story, week_dir, styles)
-    add_consultant_section(story, week_dir, styles)
-    add_response_and_losses(story, week_dir, styles)
+    add_weekly_comparison(story, week_dir, styles)
+    add_consultant_comparison(story, week_dir, styles)
+    add_losses_and_response(story, week_dir, styles)
     if closing_month_for_week(week_start):
         add_monthly_section(story, week_dir, styles)
     add_management_narratives(story, week_dir, styles)
+    campaign = load_google_campaign(week_start)
+    if campaign:
+        add_google_campaign_page(story, campaign, styles)
 
     temp_path = output_path.with_name(output_path.name + ".tmp")
     temp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1054,12 +1284,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Apenas valida os outputs, sem gerar PDF.",
     )
+    parser.add_argument(
+        "--attendance-input-root",
+        type=Path,
+        default=DEFAULT_ATTENDANCE_INPUT_ROOT,
+        help="Raiz das pastas semanais com exatamente três conversas de atendimento em TXT.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output_root = args.output_root.resolve()
+    attendance_root = args.attendance_input_root.resolve()
+    manual_dir = attendance_input_dir(attendance_root, args.week_start)
+    if manual_dir.exists():
+        print(f"Pasta manual de atendimentos encontrada: {manual_dir}")
+        try:
+            artifacts = process_attendances(
+                args.week_start,
+                input_root=attendance_root,
+                output_root=output_root,
+                force=args.force,
+                validate_only=args.validate_only,
+            )
+        except (ManualAttendanceError, OSError, ValueError) as exc:
+            print(f"Erro nos atendimentos manuais: {exc}", file=sys.stderr)
+            return 2
+        status = "reutilizadas" if artifacts.reused else "geradas"
+        print(f"Três análises independentes {status}: {artifacts.analysis_dir}")
     result = validate_outputs(output_root, args.week_start)
     print(f"Pasta verificada: {result.week_dir}")
     print(f"Arquivos obrigatórios: {len(result.expected)}")

@@ -20,6 +20,7 @@ O PDF serve apenas para orientar o tom, a profundidade e o formato. Todos os nú
 | 4.13 | `04_13_leitura_gerencial_mes.prompt.md` | `04_13_leitura_gerencial_mes.md` | Apenas em fechamento mensal |
 | 4.15 | `04_15_auditoria_crm.prompt.md` | `04_15_auditoria_crm.md` | Quando os dados sustentarem alertas de uso do CRM |
 | 4.16 | `04_16_amostragem_qualitativa.prompt.md` | `04_16_amostragem_qualitativa.md` | Quando houver dados de conversas ou amostra documentada |
+| 4.16 individual | `04_16_analise_atendimento_individual.prompt.md` | `atendimentos/01_analise.md` a `03_analise.md` | Exatamente três conversas anonimizadas, cada uma analisada isoladamente |
 | 4.17 | `04_17_diferencas_consultores.prompt.md` | `04_17_diferencas_consultores.md` | Quando houver evidência comparável suficiente |
 | 4.18 | `04_18_limitacoes_proximos_passos.prompt.md` | `04_18_limitacoes_proximos_passos.md` | Sempre que houver limitações materiais |
 
@@ -42,3 +43,6 @@ O PDF serve apenas para orientar o tom, a profundidade e o formato. Todos os nú
 - Não expor token, telefone, nome de cliente, conteúdo de mensagem ou outro dado pessoal.
 - Produzir Markdown pronto para inserção no relatório.
 - Sobrescrever o arquivo exato configurado e não criar arquivos alternativos.
+- Escrever para donos de oficina mecânica, com frases curtas e termos do dia a dia.
+- Preferir “leads que entraram” a “coorte”, “conferir” a “reconciliar” e explicar qualquer termo técnico indispensável.
+- Cortar repetições sem retirar números, limites dos dados, hipóteses ou ações práticas.

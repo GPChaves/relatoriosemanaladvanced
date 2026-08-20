@@ -28,6 +28,9 @@ except ImportError:  # pragma: no cover - Python 3.8 or older
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_FILE = PROJECT_ROOT / "env.txt"
 OUTPUT_ROOT = PROJECT_ROOT / "outputs"
+MANUAL_INPUT_ROOT = PROJECT_ROOT / "entradas_manuais"
+MANUAL_RESPONSE_ROOT = MANUAL_INPUT_ROOT / "tempo_resposta"
+MANUAL_ATTENDANCE_ROOT = MANUAL_INPUT_ROOT / "atendimentos"
 REPORT_TIMEZONE_NAME = "America/Sao_Paulo"
 IDENTIFICATION_FILENAME = "01_identificacao_periodo.csv"
 MONTHLY_DISTRIBUTION_FILENAME = "02_distribuicao_mensal_responsavel.csv"
@@ -1772,6 +1775,113 @@ def build_response_time_rows(
     return rows
 
 
+def manual_response_time_path(week_start: date) -> Path:
+    return MANUAL_RESPONSE_ROOT / week_start.isoformat() / "tempo_resposta.csv"
+
+
+def _manual_number(value: object, *, field: str, allow_na: bool = True) -> float | str:
+    text = str(value or "").strip()
+    if allow_na and text.casefold() in {"", "n/c", "nc", "n/a", "na"}:
+        return "N/C"
+    try:
+        number = float(text.replace(".", "").replace(",", ".")) if "," in text else float(text)
+    except ValueError as exc:
+        raise ValueError(f"Valor inválido em {field}: {text!r}.") from exc
+    if number < 0:
+        raise ValueError(f"{field} não pode ser negativo.")
+    return round(number, 1)
+
+
+def _manual_integer(value: object, *, field: str) -> int | str:
+    number = _manual_number(value, field=field)
+    if number == "N/C":
+        return number
+    if not float(number).is_integer():
+        raise ValueError(f"{field} deve ser um número inteiro.")
+    return int(number)
+
+
+def build_manual_response_time_rows(
+    source_path: Path,
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    """Normalize the manually supplied response-time CSV to the report schema."""
+    if not source_path.is_file():
+        raise ValueError(f"Arquivo manual não encontrado: {source_path}")
+    text = source_path.read_text(encoding="utf-8-sig")
+    if not text.strip():
+        raise ValueError(f"O arquivo manual está vazio: {source_path}")
+    first_line = text.splitlines()[0]
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+    reader = csv.DictReader(text.splitlines(), delimiter=delimiter)
+    required = {
+        "responsavel_nome",
+        "tempo_medio_minutos_anterior",
+        "tempo_medio_minutos_atual",
+    }
+    missing = required - set(reader.fieldnames or [])
+    if missing:
+        raise ValueError(
+            "Colunas ausentes no tempo de resposta manual: " + ", ".join(sorted(missing))
+        )
+
+    definition = (
+        "Minutos entre a primeira mensagem recebida e a primeira resposta "
+        "de um usuário interno na conversa. Fonte informada manualmente."
+    )
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    for line_number, source in enumerate(reader, 2):
+        responsible = str(source.get("responsavel_nome") or "").strip()
+        if not responsible:
+            raise ValueError(f"Responsável vazio na linha {line_number}.")
+        key = responsible.casefold()
+        if key in seen:
+            raise ValueError(f"Responsável duplicado no arquivo manual: {responsible}.")
+        seen.add(key)
+        previous_minutes = _manual_number(
+            source.get("tempo_medio_minutos_anterior"),
+            field=f"tempo_medio_minutos_anterior (linha {line_number})",
+        )
+        current_minutes = _manual_number(
+            source.get("tempo_medio_minutos_atual"),
+            field=f"tempo_medio_minutos_atual (linha {line_number})",
+        )
+        if previous_minutes == "N/C" and current_minutes == "N/C":
+            raise ValueError(
+                f"A linha {line_number} precisa ter ao menos um tempo médio mensurável."
+            )
+        variation: float | str = "N/C"
+        if isinstance(previous_minutes, float) and isinstance(current_minutes, float):
+            variation = round(current_minutes - previous_minutes, 1)
+        rows.append(
+            {
+                "status_dado": "disponivel_manual",
+                "motivo_indisponibilidade": "",
+                "responsavel_id": "",
+                "responsavel_nome": responsible,
+                "conversas_anterior": _manual_integer(
+                    source.get("conversas_anterior"),
+                    field=f"conversas_anterior (linha {line_number})",
+                ),
+                "tempo_medio_minutos_anterior": previous_minutes,
+                "conversas_atual": _manual_integer(
+                    source.get("conversas_atual"),
+                    field=f"conversas_atual (linha {line_number})",
+                ),
+                "tempo_medio_minutos_atual": current_minutes,
+                "variacao_minutos": variation,
+                "definicao": definition,
+                "situacao_semana_atual": week_status(week_start, extracted_at.date()),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+    if not rows:
+        raise ValueError("O arquivo manual de tempo de resposta não possui dados.")
+    return rows
+
+
 def normalize_label(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
     return "".join(character for character in normalized if not unicodedata.combining(character)).casefold()
@@ -2148,9 +2258,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     response_destination = report_output_path(args.week_start, RESPONSE_TIME_FILENAME)
     if confirm_overwrite(response_destination):
-        print("Verificando a disponibilidade do tempo de primeira resposta...")
+        manual_response = manual_response_time_path(args.week_start)
         try:
-            response_rows = build_response_time_rows(args.week_start, generated_at)
+            if manual_response.is_file():
+                print(f"Usando o tempo de resposta informado manualmente: {manual_response}")
+                response_rows = build_manual_response_time_rows(
+                    manual_response, args.week_start, generated_at
+                )
+            else:
+                print("Verificando a disponibilidade do tempo de primeira resposta...")
+                response_rows = build_response_time_rows(args.week_start, generated_at)
             write_csv_rows_atomic(
                 response_destination, RESPONSE_TIME_FIELDS, response_rows
             )

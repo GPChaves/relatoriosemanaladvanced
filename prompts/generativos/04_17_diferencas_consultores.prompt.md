@@ -26,6 +26,15 @@ Use subtítulos curtos e encerre com `### O que acompanhar`, contendo métricas 
 
 Use o PDF apenas como referência de tom. Não reutilize seus casos ou números.
 
++## Público e linguagem
+
+- Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
+- Use frases curtas, voz direta e termos comuns do dia a dia.
+- Prefira “leads que entraram” a “coorte”, “conferir” a “reconciliar” e “parte/percentual” a “participação relativa”.
+- Ao citar pontos percentuais, explique a mudança com os números antes e depois.
+- Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
+- Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+
 ## Regra de gravação
 
 Grave somente o Markdown final em `ARQUIVO_SAIDA`, sobrescrevendo o existente. Não gere duplicatas, versões ou timestamps.

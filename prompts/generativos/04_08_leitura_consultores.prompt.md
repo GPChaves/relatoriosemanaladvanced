@@ -25,6 +25,15 @@ O texto deve ser executivo, direto e semelhante em profundidade ao PDF, mas o PD
 
 Finalize com uma nota curta sobre denominadores e maturação. Não repita todas as tabelas dos CSVs.
 
++## Público e linguagem
+
+- Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
+- Use frases curtas, voz direta e termos comuns do dia a dia.
+- Prefira “leads que entraram” a “coorte”, “conferir” a “reconciliar” e “parte/percentual” a “participação relativa”.
+- Ao citar pontos percentuais, explique a mudança com os números antes e depois.
+- Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
+- Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+
 ## Regra de gravação
 
 Grave somente o Markdown final em `ARQUIVO_SAIDA`. Se o arquivo já existir, substitua integralmente seu conteúdo. Não peça confirmação, não crie cópia, não adicione sufixo, versão, data ou timestamp ao nome.
