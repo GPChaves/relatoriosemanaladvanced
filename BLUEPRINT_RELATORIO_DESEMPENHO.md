@@ -246,7 +246,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Exibição:** quando o dado estiver disponível e for comparável.
 
-**Conteúdo:** somente o responsável, o tempo da semana atual e a mudança em minutos. O valor da semana anterior é usado para calcular a mudança, mas não aparece no PDF.
+**Conteúdo:** tempo médio de primeira resposta ou da métrica de resposta adotada para cada consultor, acompanhado das colunas **Semana anterior**, **Semana atual** e **Variação**.
 
 **Objetivo:** acompanhar a agilidade do atendimento e investigar sua possível relação com abandono, engajamento e conversão.
 
@@ -369,13 +369,13 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 ### 4.16. Amostragem qualitativa dos atendimentos
 
-**Exibição:** obrigatória quando existir a pasta manual da semana com as três conversas de atendimento; indisponível quando não houver amostra documentada.
+**Exibição:** obrigatória quando existir a pasta manual da semana com os três prints de atendimento; indisponível quando não houver amostra documentada.
 
-**Conteúdo:** análise de exatamente três conversas completas escolhidas para a semana. Cada conversa deve ser anonimizada localmente e enviada isoladamente a um agente diferente, sem acesso aos outros casos. A saída deve registrar o contexto, pontos positivos, oportunidades de melhoria, melhor próximo passo, exemplo curto de resposta e limites do material.
+**Conteúdo:** análise de exatamente três prints escolhidos para a semana. Cada print deve ser enviado isoladamente a um agente diferente, sem acesso aos outros casos. A saída deve registrar contexto visível, pontos positivos, oportunidades de melhoria, melhor próximo passo, exemplo curto de resposta e limites do print.
 
-**Entrada manual:** `entradas_manuais/atendimentos/AAAA-MM-DD/`, com exatamente três arquivos TXT em UTF-8. Qualquer outra quantidade bloqueia a geração. As conversas são ligadas às análises por SHA-256; trocar um texto invalida a análise antiga.
+**Entrada manual:** `entradas_manuais/atendimentos/AAAA-MM-DD/`, com exatamente três arquivos PNG ou JPG. Qualquer outra quantidade bloqueia a geração. Os prints são ligados às análises por SHA-256; trocar uma imagem invalida o texto antigo.
 
-**Saídas:** três análises individuais em `generativos/atendimentos/` e um arquivo consolidado `04_16_amostragem_qualitativa.md`. As conversas originais não são inseridas no PDF.
+**Saídas:** três análises individuais em `generativos/atendimentos/` e um arquivo consolidado `04_16_amostragem_qualitativa.md`. Os prints originais não são inseridos no PDF.
 
 **Objetivo:** avaliar aspectos que as métricas não conseguem medir, como qualidade da comunicação, domínio técnico, entendimento da objeção, defesa de valor, proatividade, acompanhamento e pressão comercial.
 
@@ -391,7 +391,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 - momento correto de encerrar o lead;
 - precisão do registro no CRM.
 
-**Cuidados:** antes de qualquer chamada à IA, o script deve remover localmente telefones, e-mails, documentos, placas, CEP, dados bancários, endereços em campos e nomes presentes nos cabeçalhos dos participantes. As análises não devem reconstruir nem reproduzir os dados removidos. Três casos geram indícios e ações de treinamento, não conclusões universais sobre a equipe.
+**Cuidados:** ocultar nome, telefone, placa, endereço e demais dados pessoais antes de colocar os prints na pasta. As análises não devem reproduzir esses dados. Três casos geram indícios e ações de treinamento, não conclusões universais sobre a equipe.
 
 ### 4.17. Diferenças observadas entre os consultores
 

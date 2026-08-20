@@ -1817,7 +1817,9 @@ def build_manual_response_time_rows(
     reader = csv.DictReader(text.splitlines(), delimiter=delimiter)
     required = {
         "responsavel_nome",
+        "conversas_anterior",
         "tempo_medio_minutos_anterior",
+        "conversas_atual",
         "tempo_medio_minutos_atual",
     }
     missing = required - set(reader.fieldnames or [])

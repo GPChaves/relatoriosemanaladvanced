@@ -14,7 +14,7 @@ Antes de qualquer outra ação, procure estas três análises individuais:
 - `PASTA_CSV/generativos/atendimentos/02_analise.md`
 - `PASTA_CSV/generativos/atendimentos/03_analise.md`
 
-Se as três existirem, elas já foram produzidas por agentes independentes, um por conversa anonimizada. Nesse caso, não volte a analisar os atendimentos e não acrescente interpretações. Apenas reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`, mantendo os blocos `### Atendimento 1`, `### Atendimento 2` e `### Atendimento 3`. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
+Se as três existirem, elas já foram produzidas por agentes independentes, um por print. Nesse caso, não volte a analisar os atendimentos e não acrescente interpretações. Apenas reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`, mantendo os blocos `### Atendimento 1`, `### Atendimento 2` e `### Atendimento 3`. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
 
 Se apenas uma ou duas análises individuais existirem, não produza uma consolidação parcial. Informe que faltam análises e preserve os arquivos individuais existentes.
 
