@@ -2,9 +2,9 @@
 
 ## Configuração
 
-- `PASTA_CSV`: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27`
-- `ARQUIVO_SAIDA`: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27\generativos\04_13_leitura_gerencial_mes.md`
-- `PDF_REFERENCIA_EDITORIAL`: `C:\Users\admin\Downloads\Rel. Desempenho Jul 27-31.pdf`
+- `PASTA_CSV`: fornecida no envelope da tarefa.
+- `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
+- `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 
 ## Tarefa
 

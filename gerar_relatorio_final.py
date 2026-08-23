@@ -9,10 +9,11 @@ import sys
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from relatorio import applicable_month
 from processar_atendimentos import (
     DEFAULT_INPUT_ROOT as DEFAULT_ATTENDANCE_INPUT_ROOT,
     ManualAttendanceError,
@@ -77,6 +78,15 @@ WEEKLY_MARKDOWN_FILES = (
     "04_18_limitacoes_proximos_passos.md",
 )
 MONTHLY_MARKDOWN_FILES = ("04_13_leitura_gerencial_mes.md",)
+MANAGEMENT_NARRATIVES = (
+    ("5.", "Mudanças significativas", "04_10_mudancas_significativas.md"),
+    ("6.", "Análise por consultor", "04_08_leitura_consultores.md"),
+    ("7.", "O que a semana mostra", "04_12_leitura_gerencial_semana.md"),
+    ("8.", "Diferenças entre consultores", "04_17_diferencas_consultores.md"),
+    ("9.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
+    ("10.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
+    ("11.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
+)
 
 NAVY = colors.HexColor("#102A43")
 NAVY_2 = colors.HexColor("#183B56")
@@ -115,13 +125,10 @@ def parse_week_start(value: str) -> date:
     return parsed
 
 
-def closing_month_for_week(week_start: date) -> str | None:
-    for offset in range(7):
-        current = week_start + timedelta(days=offset)
-        following = current + timedelta(days=1)
-        if following.month != current.month:
-            return current.strftime("%Y-%m")
-    return None
+def closing_month_for_week(
+    week_start: date, generated_on: date | None = None
+) -> str | None:
+    return applicable_month(week_start, generated_on or date.today()) or None
 
 
 def week_output_dir(output_root: Path, week_start: date) -> Path:
@@ -1014,15 +1021,7 @@ def add_monthly_section(
 def add_management_narratives(
     story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
 ) -> None:
-    add_section_title(story, styles, "5. O que a semana mostra")
-    story.extend(markdown_flowables(load_markdown(week_dir, "04_12_leitura_gerencial_semana.md"), styles))
-    add_source(story, styles, "04_12_leitura_gerencial_semana.md")
-
-    for number, title, filename in (
-        ("6.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
-        ("7.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
-        ("8.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
-    ):
+    for number, title, filename in MANAGEMENT_NARRATIVES:
         # A seção final precisa de uma página quase inteira; as demais só não
         # devem começar quando restar pouco espaço.
         minimum_space = 180 * mm if filename == "04_18_limitacoes_proximos_passos.md" else 70 * mm
@@ -1201,8 +1200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (ManualAttendanceError, OSError, ValueError) as exc:
             print(f"Erro nos atendimentos manuais: {exc}", file=sys.stderr)
             return 2
-        status = "reutilizadas" if artifacts.reused else "geradas"
-        print(f"Três análises independentes {status}: {artifacts.analysis_dir}")
+        print(f"Artefatos externos dos três atendimentos validados: {artifacts.analysis_dir}")
     result = validate_outputs(output_root, args.week_start)
     print(f"Pasta verificada: {result.week_dir}")
     print(f"Arquivos obrigatórios: {len(result.expected)}")

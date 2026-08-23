@@ -1,6 +1,9 @@
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import date, datetime, timezone
+from io import StringIO
 from pathlib import Path
 
 import processar_atendimentos as attendance
@@ -62,60 +65,152 @@ class AttendanceInputTests(unittest.TestCase):
             with self.assertRaises(attendance.ManualAttendanceError):
                 attendance.find_attendance_images(week_dir)
 
-    def test_three_independent_analyses_are_written_and_reused(self) -> None:
-        calls: list[int] = []
+    def write_agent_outputs(self, preparation: attendance.AttendancePreparation) -> None:
+        for image in preparation.images:
+            image.analysis_path.write_text(
+                f"**Resumo do que aparece**\n\nAnálise independente {image.slot}.\n",
+                encoding="utf-8",
+            )
+        preparation.combined_path.write_text(
+            "## Revisão da qualidade dos atendimentos\n\nSíntese feita por outro subagente.\n",
+            encoding="utf-8",
+        )
 
-        def fake_analyzer(path: Path, slot: int, model: str, prompt: str) -> str:
-            calls.append(slot)
-            return f"**Resumo do que aparece**\n\nAnálise independente {slot}."
-
+    def test_prepare_returns_ordered_paths_and_hashes_without_calling_ai(self) -> None:
         with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
             input_root = Path(input_directory)
             output_root = Path(output_directory)
             self.create_images(input_root, 3)
-            result = attendance.process_attendances(
+            preparation = attendance.prepare_attendances(
                 date(2026, 8, 17),
                 input_root=input_root,
                 output_root=output_root,
-                force=True,
-                analyze_fn=fake_analyzer,
             )
-            self.assertFalse(result.reused)
-            self.assertEqual(sorted(calls), [1, 2, 3])
-            self.assertIn("Atendimento 3", result.combined_path.read_text(encoding="utf-8"))
-            calls.clear()
-            reused = attendance.process_attendances(
+
+        self.assertEqual([image.slot for image in preparation.images], [1, 2, 3])
+        self.assertEqual([image.path.name for image in preparation.images], ["01.png", "02.png", "03.png"])
+        self.assertEqual(
+            [image.analysis_path.name for image in preparation.images],
+            ["01_analise.md", "02_analise.md", "03_analise.md"],
+        )
+        self.assertTrue(all(len(image.sha256) == 64 for image in preparation.images))
+        self.assertFalse((preparation.analysis_dir / attendance.MANIFEST_NAME).exists())
+        self.assertFalse(preparation.combined_path.exists())
+
+    def test_finalize_requires_individual_and_consolidated_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            self.create_images(input_root, 3)
+            preparation = attendance.prepare_attendances(
                 date(2026, 8, 17),
                 input_root=input_root,
                 output_root=output_root,
-                analyze_fn=fake_analyzer,
             )
-            self.assertTrue(reused.reused)
-            self.assertEqual(calls, [])
+            for image in preparation.images:
+                image.analysis_path.write_text(f"Análise {image.slot}\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(attendance.ManualAttendanceError, "consolidada"):
+                attendance.finalize_attendances(
+                    date(2026, 8, 17), input_root=input_root, output_root=output_root
+                )
+            self.assertFalse((preparation.analysis_dir / attendance.MANIFEST_NAME).exists())
+
+    def test_prepare_command_outputs_machine_readable_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            self.create_images(input_root, 3)
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = attendance.main(
+                    [
+                        "prepare",
+                        "--week-start", "2026-08-17",
+                        "--input-root", str(input_root),
+                        "--output-root", str(output_root),
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["week_start"], "2026-08-17")
+        self.assertEqual(len(payload["images"]), 3)
+        self.assertEqual(payload["images"][2]["analysis_path"].split("\\")[-1], "03_analise.md")
+
+    def test_finalize_registers_deterministic_manifest_and_validate_reuses_it(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            self.create_images(input_root, 3)
+            preparation = attendance.prepare_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.write_agent_outputs(preparation)
+            finalized = attendance.finalize_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            manifest_path = finalized.analysis_dir / attendance.MANIFEST_NAME
+            first_manifest_text = manifest_path.read_text(encoding="utf-8")
+            manifest = json.loads(first_manifest_text)
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(len(manifest["images"]), 3)
+            self.assertEqual(len(manifest["analyses"]), 3)
+            self.assertEqual(manifest["combined"]["filename"], attendance.COMBINED_NAME)
+
+            attendance.finalize_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.assertEqual(manifest_path.read_text(encoding="utf-8"), first_manifest_text)
+            validated = attendance.validate_attendance_artifacts(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.assertTrue(validated.reused)
+
+    def test_process_attendances_only_validates_and_never_generates(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            self.create_images(input_root, 3)
+            with self.assertRaisesRegex(attendance.ManualAttendanceError, "subagentes externos"):
+                attendance.process_attendances(
+                    date(2026, 8, 17), input_root=input_root, output_root=output_root, force=True
+                )
 
     def test_changed_image_invalidates_manifest(self) -> None:
-        def fake_analyzer(path: Path, slot: int, model: str, prompt: str) -> str:
-            return f"Análise {slot}"
-
         with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
             input_root = Path(input_directory)
             output_root = Path(output_directory)
             week_dir = self.create_images(input_root, 3)
-            attendance.process_attendances(
-                date(2026, 8, 17),
-                input_root=input_root,
-                output_root=output_root,
-                force=True,
-                analyze_fn=fake_analyzer,
+            preparation = attendance.prepare_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.write_agent_outputs(preparation)
+            attendance.finalize_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
             )
             (week_dir / "02.png").write_bytes(PNG_BYTES + b"changed")
             with self.assertRaises(attendance.ManualAttendanceError):
-                attendance.process_attendances(
-                    date(2026, 8, 17),
-                    input_root=input_root,
-                    output_root=output_root,
-                    validate_only=True,
-                    analyze_fn=fake_analyzer,
+                attendance.validate_attendance_artifacts(
+                    date(2026, 8, 17), input_root=input_root, output_root=output_root
+                )
+
+    def test_changed_analysis_invalidates_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            self.create_images(input_root, 3)
+            preparation = attendance.prepare_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.write_agent_outputs(preparation)
+            attendance.finalize_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            preparation.images[0].analysis_path.write_text("Análise alterada\n", encoding="utf-8")
+            with self.assertRaises(attendance.ManualAttendanceError):
+                attendance.validate_attendance_artifacts(
+                    date(2026, 8, 17), input_root=input_root, output_root=output_root
                 )
 
 

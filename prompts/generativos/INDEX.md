@@ -2,13 +2,11 @@
 
 Este diretório contém um prompt autossuficiente para cada seção generativa do relatório de desempenho comercial.
 
-## Referência configurada
+## Contrato de execução
 
-- Pasta dos CSVs: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27`
-- Pasta dos textos gerados: `C:\Users\admin\Desktop\Advanced\Relatorio foda\outputs\2026\2026-07-27\generativos`
-- PDF de referência editorial: `C:\Users\admin\Downloads\Rel. Desempenho Jul 27-31.pdf`
+Os caminhos da semana não ficam gravados nos prompts. O executor fornece a cada agente, no envelope da tarefa, a pasta dos CSVs, o arquivo de saída e uma referência editorial opcional. O arquivo `manifest.json` relaciona cada prompt às entradas e à saída estável.
 
-O PDF serve apenas para orientar o tom, a profundidade e o formato. Todos os números e conclusões devem vir dos CSVs da pasta configurada.
+Cada texto deve ser produzido por um agente com contexto limpo. O agente lê somente o prompt e as fontes declaradas para sua tarefa. Todos os números e conclusões devem vir dos CSVs fornecidos.
 
 ## Prompts e arquivos de saída
 
@@ -26,12 +24,11 @@ O PDF serve apenas para orientar o tom, a profundidade e o formato. Todos os nú
 
 ## Como regenerar
 
-1. Copie a pasta de prompts ou altere, dentro de cada prompt, os campos `PASTA_CSV` e `ARQUIVO_SAIDA` para a semana desejada.
-2. Mantenha o nome estável do arquivo de saída. Não acrescente datas, versões, `(1)` ou timestamps ao nome.
-3. Execute cada prompt separadamente. O agente deve ler os CSVs diretamente da pasta indicada.
-4. Se o arquivo de saída já existir, ele deve ser substituído integralmente. Essa sobrescrita é deliberada e evita duplicatas.
-5. Revise primeiro as seções 4.8, 4.10 e 4.13. As seções 4.12, 4.17 e 4.18 podem usar as mesmas fontes, mas devem continuar compreensíveis de forma independente.
-6. A seção 4.16 não pode ser produzida a partir de métricas agregadas. Sem amostra de conversas, o resultado correto é uma nota de indisponibilidade, nunca uma análise inventada.
+1. Leia `manifest.json` e selecione as tarefas semanais, qualitativas e, quando aplicável, mensais.
+2. Crie um agente limpo por texto e forneça os caminhos absolutos de suas entradas e saída.
+3. Mantenha o nome estável do arquivo de saída. Não acrescente datas, versões, `(1)` ou timestamps.
+4. Substitua integralmente uma saída anterior da mesma semana.
+5. Para a seção 4.16, analise cada print em um agente isolado antes de criar a consolidação em um quarto agente limpo.
 
 ## Regras comuns
 

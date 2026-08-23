@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import shutil
+import tempfile
+import uuid
 from collections import Counter
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -18,6 +22,7 @@ from relatorio import (
     WEEKLY_MOVEMENT_FIELDS,
     WEEKLY_NEW_LEADS_FIELDS,
     build_manual_response_time_rows,
+    closing_month,
     manual_response_time_path,
     parse_week_start,
     report_timezone,
@@ -27,8 +32,8 @@ from relatorio import (
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
-PIPELINE_NAME = "Funil de vendas"
-CONSULTANT_NAMES = ("Milena", "Vitor")
+DEFAULT_PIPELINE_NAME = "Funil de vendas"
+UNASSIGNED_RESPONSIBLE = "Sem consultor definido"
 
 
 def pct(part: int, total: int) -> float:
@@ -42,7 +47,7 @@ def pp(current: float, previous: float) -> float:
 def normalized_responsible(value: object) -> str:
     text = str(value or "").strip()
     if not text or text.casefold() in {"nan", "advanced mecânica"}:
-        return "Sem consultor definido"
+        return UNASSIGNED_RESPONSIBLE
     return text
 
 
@@ -74,15 +79,25 @@ def write_csv(path: Path, fields: Sequence[str], rows: list[dict[str, object]]) 
     write_csv_rows_atomic(path, list(fields), rows)
 
 
-def build_outputs(
+def _preflight_source(
     source: Path,
     week_start: date,
-    output_root: Path,
-    *,
-    period_days: int = 7,
-) -> Path:
+    pipeline_name: str,
+    period_days: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, date, date, date]:
     if not 1 <= period_days <= 7:
         raise ValueError("period_days deve estar entre 1 e 7.")
+    if closing_month(week_start):
+        raise ValueError(
+            "A semana solicitada fecha um mês, mas a rota XLSX não gera os "
+            "consolidados mensais obrigatórios. Execute relatorio.py com a API da "
+            "Kommo para essa semana."
+        )
+    pipeline_name = pipeline_name.strip()
+    if not pipeline_name:
+        raise ValueError("pipeline_name não pode ser vazio.")
+    if not source.is_file():
+        raise ValueError(f"Export XLSX não encontrado: {source}")
 
     frame = pd.read_excel(source)
     required = {
@@ -106,8 +121,13 @@ def build_outputs(
     )
     frame = frame[
         frame["Funil de vendas"].astype(str).str.casefold()
-        == PIPELINE_NAME.casefold()
+        == pipeline_name.casefold()
     ].copy()
+    if frame.empty:
+        raise ValueError(
+            f"O export não contém leads no pipeline {pipeline_name!r}. "
+            "Confira --pipeline-name e gere novamente o XLSX."
+        )
     frame["responsavel"] = frame["Lead usuário responsável"].map(
         normalized_responsible
     )
@@ -126,11 +146,22 @@ def build_outputs(
     current = period_slice(frame, week_start, current_end)
     if current.empty:
         raise ValueError("O Excel não contém leads criados no período solicitado.")
+    return previous, current, current_end, previous_start, previous_end
 
-    extracted_at = datetime.now(report_timezone())
+
+def _build_artifacts(
+    previous: pd.DataFrame,
+    current: pd.DataFrame,
+    week_start: date,
+    current_end: date,
+    previous_start: date,
+    previous_end: date,
+    pipeline_name: str,
+    response_rows: list[dict[str, object]],
+    extracted_at: datetime,
+) -> list[tuple[str, Sequence[str], list[dict[str, object]]]]:
     stamp = extracted_at.isoformat(timespec="seconds")
-    output_dir = output_root / str(week_start.year) / week_start.isoformat()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    artifacts: list[tuple[str, Sequence[str], list[dict[str, object]]]] = []
 
     identification_fields = [
         "titulo",
@@ -142,28 +173,30 @@ def build_outputs(
         "mes_fechado",
         "data_hora_geracao",
     ]
-    write_csv(
-        output_dir / "01_identificacao_periodo.csv",
-        identification_fields,
-        [
-            {
-                "titulo": "Relatório de Desempenho Comercial",
-                "data_inicial": week_start.isoformat(),
-                "data_final": current_end.isoformat(),
-                "fuso_horario": "America/Sao_Paulo",
-                "situacao_semana": "completa",
-                "fecha_mes": "não",
-                "mes_fechado": "",
-                "data_hora_geracao": stamp,
-            }
-        ],
+    artifacts.append(
+        (
+            "01_identificacao_periodo.csv",
+            identification_fields,
+            [
+                {
+                    "titulo": "Relatório de Desempenho Comercial",
+                    "data_inicial": week_start.isoformat(),
+                    "data_final": current_end.isoformat(),
+                    "fuso_horario": "America/Sao_Paulo",
+                    "situacao_semana": "completa",
+                    "fecha_mes": "não",
+                    "mes_fechado": "",
+                    "data_hora_geracao": stamp,
+                }
+            ],
+        )
     )
 
     total_previous = len(previous)
     total_current = len(current)
     responsible_order = sorted(
         set(previous["responsavel"]) | set(current["responsavel"]),
-        key=lambda name: (name == "Sem consultor definido", name.casefold()),
+        key=lambda name: (name == UNASSIGNED_RESPONSIBLE, name.casefold()),
     )
     new_lead_rows: list[dict[str, object]] = []
     for responsible in responsible_order:
@@ -174,7 +207,7 @@ def build_outputs(
         new_lead_rows.append(
             {
                 "pipeline_id": "",
-                "pipeline_nome": PIPELINE_NAME,
+                "pipeline_nome": pipeline_name,
                 "responsavel_id": "",
                 "responsavel_nome": responsible,
                 "novos_leads_anterior": previous_count,
@@ -190,16 +223,12 @@ def build_outputs(
                 "data_hora_extracao": stamp,
             }
         )
-    write_csv(
-        output_dir / "07_novos_leads_semana.csv",
-        WEEKLY_NEW_LEADS_FIELDS,
-        new_lead_rows,
-    )
+    artifacts.append(("07_novos_leads_semana.csv", WEEKLY_NEW_LEADS_FIELDS, new_lead_rows))
 
     consultants = [
         responsible
         for responsible in responsible_order
-        if any(name.casefold() in responsible.casefold() for name in CONSULTANT_NAMES)
+        if responsible != UNASSIGNED_RESPONSIBLE
     ]
     conversion_rows: list[dict[str, object]] = []
     for responsible in consultants:
@@ -214,7 +243,7 @@ def build_outputs(
         conversion_rows.append(
             {
                 "pipeline_id": "",
-                "pipeline_nome": PIPELINE_NAME,
+                "pipeline_nome": pipeline_name,
                 "responsavel_id": "",
                 "responsavel_nome": responsible,
                 "universo": "leads_criados_no_periodo",
@@ -236,11 +265,7 @@ def build_outputs(
                 "data_hora_extracao": stamp,
             }
         )
-    write_csv(
-        output_dir / "04_conversao_responsavel.csv",
-        WEEKLY_CONVERSION_FIELDS,
-        conversion_rows,
-    )
+    artifacts.append(("04_conversao_responsavel.csv", WEEKLY_CONVERSION_FIELDS, conversion_rows))
 
     categories = sorted(
         set(previous["categoria"]) | set(current["categoria"]), key=str.casefold
@@ -264,7 +289,7 @@ def build_outputs(
             stage_rows.append(
                 {
                     "pipeline_id": "",
-                    "pipeline_nome": PIPELINE_NAME,
+                    "pipeline_nome": pipeline_name,
                     "responsavel_id": "",
                     "responsavel_nome": responsible,
                     "categoria_relatorio": category,
@@ -283,11 +308,7 @@ def build_outputs(
                     "data_hora_extracao": stamp,
                 }
             )
-    write_csv(
-        output_dir / "08_etapas_por_consultor.csv",
-        CONSULTANT_STAGES_FIELDS,
-        stage_rows,
-    )
+    artifacts.append(("08_etapas_por_consultor.csv", CONSULTANT_STAGES_FIELDS, stage_rows))
 
     previous_losses = previous[previous["Etapa do lead"].map(is_lost)]
     current_losses = current[current["Etapa do lead"].map(is_lost)]
@@ -311,7 +332,7 @@ def build_outputs(
         loss_rows.append(
             {
                 "pipeline_id": "",
-                "pipeline_nome": PIPELINE_NAME,
+                "pipeline_nome": pipeline_name,
                 "loss_reason_id": "",
                 "motivo_perda": reason,
                 "quantidade_anterior": previous_count,
@@ -325,11 +346,7 @@ def build_outputs(
                 "data_hora_extracao": stamp,
             }
         )
-    write_csv(
-        output_dir / "11_composicao_leads_perdidos.csv",
-        LOST_COMPOSITION_FIELDS,
-        loss_rows,
-    )
+    artifacts.append(("11_composicao_leads_perdidos.csv", LOST_COMPOSITION_FIELDS, loss_rows))
 
     movement_fields = [
         "status_dado",
@@ -347,9 +364,7 @@ def build_outputs(
             "data_hora_extracao": stamp,
         }
     )
-    write_csv(
-        output_dir / "05_movimentacao_semanal.csv", movement_fields, [movement_row]
-    )
+    artifacts.append(("05_movimentacao_semanal.csv", movement_fields, [movement_row]))
 
     method_row = {field: "" for field in MOVEMENT_METHOD_FIELDS}
     method_row.update(
@@ -362,22 +377,87 @@ def build_outputs(
             "data_hora_extracao": stamp,
         }
     )
-    write_csv(
-        output_dir / "06_nota_metodologica_movimentacao.csv",
-        MOVEMENT_METHOD_FIELDS,
-        [method_row],
+    artifacts.append(
+        (
+            "06_nota_metodologica_movimentacao.csv",
+            MOVEMENT_METHOD_FIELDS,
+            [method_row],
+        )
     )
 
+    for row in response_rows:
+        row["situacao_semana_atual"] = "completa"
+    artifacts.append(("09_tempo_medio_resposta.csv", RESPONSE_TIME_FIELDS, response_rows))
+    return artifacts
+
+
+def _promote_staging(staging_dir: Path, output_dir: Path) -> None:
+    if not output_dir.exists():
+        os.replace(staging_dir, output_dir)
+        return
+
+    backup_dir = output_dir.with_name(
+        f".{output_dir.name}.backup-{uuid.uuid4().hex}"
+    )
+    os.replace(output_dir, backup_dir)
+    try:
+        os.replace(staging_dir, output_dir)
+    except Exception:
+        os.replace(backup_dir, output_dir)
+        raise
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def build_outputs(
+    source: Path,
+    week_start: date,
+    output_root: Path,
+    *,
+    period_days: int = 7,
+    pipeline_name: str = DEFAULT_PIPELINE_NAME,
+    force: bool = False,
+) -> Path:
+    pipeline_name = pipeline_name.strip()
+    previous, current, current_end, previous_start, previous_end = _preflight_source(
+        source, week_start, pipeline_name, period_days
+    )
+
+    extracted_at = datetime.now(report_timezone())
     response_rows = build_manual_response_time_rows(
         manual_response_time_path(week_start), week_start, extracted_at
     )
-    for row in response_rows:
-        row["situacao_semana_atual"] = "completa"
-    write_csv(
-        output_dir / "09_tempo_medio_resposta.csv",
-        RESPONSE_TIME_FIELDS,
+    artifacts = _build_artifacts(
+        previous,
+        current,
+        week_start,
+        current_end,
+        previous_start,
+        previous_end,
+        pipeline_name,
         response_rows,
+        extracted_at,
     )
+
+    output_dir = output_root / str(week_start.year) / week_start.isoformat()
+    if output_dir.exists() and not force:
+        raise FileExistsError(
+            f"A pasta de saída já existe: {output_dir}. "
+            "Use --force para substituí-la de forma segura."
+        )
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{week_start.isoformat()}-", dir=output_dir.parent)
+    )
+    try:
+        if output_dir.exists():
+            shutil.copytree(output_dir, staging_dir, dirs_exist_ok=True)
+        for filename, fields, rows in artifacts:
+            write_csv(staging_dir / filename, fields, rows)
+        _promote_staging(staging_dir, output_dir)
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
     return output_dir
 
 
@@ -388,7 +468,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--week-start", type=parse_week_start, required=True)
     parser.add_argument("--period-days", type=int, default=7)
+    parser.add_argument("--pipeline-name", default=DEFAULT_PIPELINE_NAME)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Substitui uma saída existente somente após concluir toda a nova geração.",
+    )
     return parser
 
 
@@ -399,6 +485,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.week_start,
         args.output_root.resolve(),
         period_days=args.period_days,
+        pipeline_name=args.pipeline_name,
+        force=args.force,
     )
     print(f"Consolidados gerados: {output_dir}")
     return 0

@@ -1,0 +1,79 @@
+---
+name: gerar-relatorio-comercial
+description: Executa o relatório semanal de desempenho comercial da Advanced Mecânica, coletando entradas manuais, obtendo dados do Kommo ou de um XLSX exportado, delegando cada texto a um subagente limpo e entregando o PDF validado. Use quando o usuário pedir para gerar, regerar ou concluir esse relatório; não use para análises comerciais avulsas sem o pipeline deste projeto.
+---
+
+# Gerar relatório comercial
+
+Produza um relatório completo para uma semana. Preserve as entradas operacionais locais e nunca use números de outra semana para preencher lacunas.
+
+## Preparar a execução
+
+1. Resolva a raiz com `git rev-parse --show-toplevel`; não dependa do diretório atual nem grave caminhos absolutos nos prompts.
+2. Obtenha a segunda-feira da semana em `AAAA-MM-DD`. Se não tiver sido informada, peça-a antes de prosseguir. Se essa segunda-feira estiver no futuro no fuso `America/Sao_Paulo`, não colete dados nem execute o pipeline; informe a primeira data em que a semana poderá ser tratada como parcial.
+3. Se `load_workspace_dependencies` estiver disponível, use-o para localizar Python. Caso contrário, procure `python` ou `py`. Use o mesmo interpretador em todos os comandos.
+4. Verifique sem revelar valores se `env.txt` contém `KOMMO_TOKEN` e `KOMMO_BASE_URL`. A rota XLSX não precisa consultar a API.
+5. Mantenha um plano curto com coleta, dados quantitativos, subagentes, validação e PDF.
+
+## Coletar entradas manuais
+
+Leia [references/entradas-manuais.md](references/entradas-manuais.md). Verifique primeiro se a semana já possui um CSV válido de tempo de resposta e exatamente três imagens válidas.
+
+Peça em uma única mensagem somente o que estiver ausente. Diga explicitamente que a skill está pausando para aguardar as entradas. Quando o usuário responder, salve os dados nos caminhos semanais e valide novamente antes de consultar a API ou processar o XLSX. Confirme com `git check-ignore` que cada entrada salva está ignorada; se não estiver, pare e corrija o `.gitignore` antes de continuar.
+
+Não sobrescreva uma entrada manual existente com conteúdo diferente sem avisar. Não coloque entradas manuais, outputs, prints ou credenciais no Git.
+
+## Gerar os CSVs
+
+Prefira a API quando as credenciais estiverem configuradas e o usuário não tiver fornecido um XLSX:
+
+```powershell
+python relatorio.py --week-start AAAA-MM-DD --validate-only
+python relatorio.py --week-start AAAA-MM-DD --force
+```
+
+Quando o usuário fornecer um export do Kommo, use:
+
+```powershell
+python importar_export_kommo.py --source ARQUIVO.xlsx --week-start AAAA-MM-DD --force
+```
+
+Passe `--pipeline-name` somente quando o usuário indicar um nome diferente. A rota XLSX não suporta uma semana de fechamento mensal; nesse caso, explique e use a API após confirmar que as credenciais existem.
+
+Capture código de saída, `stdout` e `stderr`. Em caso de erro, pare a etapa, leia [references/diagnostico-erros.md](references/diagnostico-erros.md), devolva a mensagem útil e proponha uma correção. Não gere textos com CSVs incompletos.
+
+Depois da geração, compare os responsáveis de `04_conversao_responsavel.csv` com `09_tempo_medio_resposta.csv`. Se algum consultor não tiver uma linha manual comparável, pause e peça a correção; não associe nomes por aproximação.
+
+## Gerar os textos em contextos limpos
+
+Leia [references/subagentes-generativos.md](references/subagentes-generativos.md) e `prompts/generativos/manifest.json`.
+
+Prepare os atendimentos:
+
+```powershell
+python processar_atendimentos.py prepare --week-start AAAA-MM-DD
+```
+
+Use `collaboration.spawn_agent` com `fork_turns="none"` para cada texto. Primeiro crie três agentes isolados, um por print. Depois crie um agente limpo para a consolidação qualitativa. Finalize e valide os hashes:
+
+```powershell
+python processar_atendimentos.py finalize --week-start AAAA-MM-DD
+python processar_atendimentos.py validate --week-start AAAA-MM-DD
+```
+
+Em seguida, crie um agente limpo para cada item semanal do manifesto. Crie o agente mensal somente quando os CSVs mensais tiverem sido gerados. Nunca escreva um texto generativo no agente principal e nunca forneça a um agente fontes que não estejam declaradas para a seção.
+
+Espere todos os agentes, confira que cada saída é UTF-8, não vazia e começa com `## `. Repita uma falha no máximo uma vez em outro contexto limpo.
+
+## Gerar e entregar o PDF
+
+Valide antes de gerar:
+
+```powershell
+python gerar_relatorio_final.py --week-start AAAA-MM-DD --validate-only
+python gerar_relatorio_final.py --week-start AAAA-MM-DD --force
+```
+
+Confirme que `outputs/AAAA/AAAA-MM-DD/relatorio_desempenho_final.pdf` existe e não está vazio. Responda com um link Markdown para o caminho local absoluto do PDF e um resumo curto das fontes usadas, da situação da semana e de qualquer limitação registrada.
+
+Não faça commit, push, envio externo ou exclusão de outras semanas como parte desta skill.

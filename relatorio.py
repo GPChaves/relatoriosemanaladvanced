@@ -423,6 +423,13 @@ def parse_week_start(value: str) -> date:
     return parsed
 
 
+def validate_week_start(week_start: date) -> None:
+    if week_start.weekday() != 0:
+        raise ValueError(
+            "--week-start deve indicar uma segunda-feira (início da semana)."
+        )
+
+
 def week_status(week_start: date, today: date) -> str:
     week_end = week_start + timedelta(days=6)
     if today < week_start:
@@ -448,6 +455,20 @@ def month_boundaries(month_reference: str) -> tuple[date, date]:
     else:
         next_month = date(month_start.year, month_start.month + 1, 1)
     return month_start, next_month
+
+
+def applicable_month(week_start: date, generated_on: date) -> str:
+    """Return the closed month applicable to this reporting week, if any.
+
+    A monthly section is applicable only when the seven-day reporting window
+    contains a month end and the report is generated on or after the first day
+    of the following month. This keeps partial month-end runs weekly-only.
+    """
+    month_reference = closing_month(week_start)
+    if not month_reference:
+        return ""
+    _, next_month = month_boundaries(month_reference)
+    return month_reference if generated_on >= next_month else ""
 
 
 def build_identification(week_start: date, generated_at: datetime) -> PeriodIdentification:
@@ -516,6 +537,10 @@ def confirm_overwrite(path: Path, input_fn: Callable[[str], str] = input) -> boo
         print()
         return False
     return answer in {"s", "sim"}
+
+
+def should_overwrite(path: Path, *, force: bool = False) -> bool:
+    return True if force else confirm_overwrite(path)
 
 
 def write_csv_rows_atomic(
@@ -2059,6 +2084,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="AAAA-MM-DD",
         help="primeiro dia da semana analisada",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--force",
+        action="store_true",
+        help="sobrescreve todos os arquivos aplicáveis sem pedir confirmação",
+    )
+    mode.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="valida semana e configuração sem consultar a API nem gravar arquivos",
+    )
     return parser
 
 
@@ -2070,11 +2106,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         load_env_file()
     except (OSError, UnicodeError, ValueError) as exc:
         print(f"Erro ao carregar {ENV_FILE.name}: {exc}", file=sys.stderr)
-        return 1
+        return 2
 
     generated_at = datetime.now(report_timezone())
+    manual_response = manual_response_time_path(args.week_start)
+    manual_response_rows: list[dict[str, object]] | None = None
+    try:
+        validate_week_start(args.week_start)
+        KommoConfig.from_environment()
+        if manual_response.is_file():
+            manual_response_rows = build_manual_response_time_rows(
+                manual_response, args.week_start, generated_at
+            )
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"Erro de validação: {exc}", file=sys.stderr)
+        return 2
+
+    month_reference = applicable_month(args.week_start, generated_at.date())
+    if args.validate_only:
+        status = week_status(args.week_start, generated_at.date())
+        monthly_status = month_reference or "não aplicável"
+        print(
+            "Validação concluída com sucesso: "
+            f"semana={args.week_start.isoformat()}, situação={status}, "
+            f"mês fechado={monthly_status}."
+        )
+        return 0
+
     identification_destination = output_path(args.week_start)
-    if confirm_overwrite(identification_destination):
+    if should_overwrite(identification_destination, force=args.force):
         record = build_identification(args.week_start, generated_at)
         try:
             write_csv_atomic(identification_destination, record)
@@ -2085,87 +2145,86 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         print("Arquivo de identificação preservado.")
 
-    month_reference = closing_month(args.week_start)
     if not month_reference:
-        print("Itens mensais 4.2, 4.3, 4.13 e 4.14 não aplicáveis nesta semana.")
-    else:
-        _, next_month = month_boundaries(month_reference)
-        if generated_at.date() < next_month:
+        calendar_month = closing_month(args.week_start)
+        if calendar_month:
             print(
-                f"Itens mensais ainda não aplicáveis: "
-                f"o mês {month_reference} não terminou."
+                "Itens mensais ainda não aplicáveis: "
+                f"o mês {calendar_month} não terminou."
             )
         else:
-            monthly_targets = {
-                "distribution": monthly_distribution_path(args.week_start),
-                "stages": global_stages_path(args.week_start),
-                "weeks": report_output_path(args.week_start, MONTHLY_WEEKS_FILENAME),
-                "summary": report_output_path(args.week_start, MONTHLY_SUMMARY_FILENAME),
-            }
-            monthly_selected: dict[str, bool] = {}
-            for key, destination in monthly_targets.items():
-                monthly_selected[key] = confirm_overwrite(destination)
-                if not monthly_selected[key]:
-                    print(f"Arquivo preservado: {destination}")
+            print("Itens mensais 4.2, 4.3, 4.13 e 4.14 não aplicáveis nesta semana.")
+    else:
+        monthly_targets = {
+            "distribution": monthly_distribution_path(args.week_start),
+            "stages": global_stages_path(args.week_start),
+            "weeks": report_output_path(args.week_start, MONTHLY_WEEKS_FILENAME),
+            "summary": report_output_path(args.week_start, MONTHLY_SUMMARY_FILENAME),
+        }
+        monthly_selected: dict[str, bool] = {}
+        for key, destination in monthly_targets.items():
+            monthly_selected[key] = should_overwrite(destination, force=args.force)
+            if not monthly_selected[key]:
+                print(f"Arquivo preservado: {destination}")
 
-            if any(monthly_selected.values()):
-                print(
-                    f"Consultando a Kommo em modo somente leitura "
-                    f"para o mês {month_reference}..."
-                )
-                try:
-                    snapshot = load_monthly_snapshot(month_reference)
-                    if monthly_selected["distribution"]:
-                        lead_count = generate_monthly_distribution(
-                            monthly_targets["distribution"],
-                            snapshot,
-                            month_reference,
-                            generated_at,
+        if any(monthly_selected.values()):
+            print(
+                f"Consultando a Kommo em modo somente leitura "
+                f"para o mês {month_reference}..."
+            )
+            try:
+                snapshot = load_monthly_snapshot(month_reference)
+                if monthly_selected["distribution"]:
+                    lead_count = generate_monthly_distribution(
+                        monthly_targets["distribution"],
+                        snapshot,
+                        month_reference,
+                        generated_at,
+                    )
+                    print(
+                        f"CSV gerado com sucesso: {monthly_targets['distribution']} "
+                        f"({lead_count} leads consolidados)"
+                    )
+                if monthly_selected["stages"]:
+                    stage_lead_count = generate_global_stages(
+                        monthly_targets["stages"],
+                        snapshot,
+                        month_reference,
+                        generated_at,
+                    )
+                    print(
+                        f"CSV gerado com sucesso: {monthly_targets['stages']} "
+                        f"({stage_lead_count} leads consolidados)"
+                    )
+                if monthly_selected["weeks"]:
+                    month_week_rows = build_monthly_week_rows(
+                        snapshot, month_reference, args.week_start, generated_at
+                    )
+                    if sum(int(row["novos_leads"]) for row in month_week_rows) != len(
+                        snapshot.leads
+                    ):
+                        raise KommoApiError(
+                            "As semanas do mês não fecham com o total mensal."
                         )
-                        print(
-                            f"CSV gerado com sucesso: {monthly_targets['distribution']} "
-                            f"({lead_count} leads consolidados)"
-                        )
-                    if monthly_selected["stages"]:
-                        stage_lead_count = generate_global_stages(
-                            monthly_targets["stages"],
-                            snapshot,
-                            month_reference,
-                            generated_at,
-                        )
-                        print(
-                            f"CSV gerado com sucesso: {monthly_targets['stages']} "
-                            f"({stage_lead_count} leads consolidados)"
-                        )
-                    if monthly_selected["weeks"]:
-                        month_week_rows = build_monthly_week_rows(
-                            snapshot, month_reference, args.week_start, generated_at
-                        )
-                        if sum(int(row["novos_leads"]) for row in month_week_rows) != len(
-                            snapshot.leads
-                        ):
-                            raise KommoApiError(
-                                "As semanas do mês não fecham com o total mensal."
-                            )
-                        write_csv_rows_atomic(
-                            monthly_targets["weeks"],
-                            MONTHLY_WEEKS_FIELDS,
-                            month_week_rows,
-                        )
-                        print(f"CSV gerado com sucesso: {monthly_targets['weeks']}")
-                    if monthly_selected["summary"]:
-                        summary_rows = build_monthly_summary_rows(
-                            snapshot, month_reference, generated_at
-                        )
-                        write_csv_rows_atomic(
-                            monthly_targets["summary"],
-                            MONTHLY_SUMMARY_FIELDS,
-                            summary_rows,
-                        )
-                        print(f"CSV gerado com sucesso: {monthly_targets['summary']}")
-                except (KommoApiError, OSError, ValueError) as exc:
-                    print(f"Erro ao gerar o consolidado mensal: {exc}", file=sys.stderr)
-                    return 1
+                    write_csv_rows_atomic(
+                        monthly_targets["weeks"],
+                        MONTHLY_WEEKS_FIELDS,
+                        month_week_rows,
+                    )
+                    print(f"CSV gerado com sucesso: {monthly_targets['weeks']}")
+                if monthly_selected["summary"]:
+                    summary_rows = build_monthly_summary_rows(
+                        snapshot, month_reference, generated_at
+                    )
+                    write_csv_rows_atomic(
+                        monthly_targets["summary"],
+                        MONTHLY_SUMMARY_FIELDS,
+                        summary_rows,
+                    )
+                    print(f"CSV gerado com sucesso: {monthly_targets['summary']}")
+            except (KommoApiError, OSError, ValueError) as exc:
+                print(f"Erro ao gerar o consolidado mensal: {exc}", file=sys.stderr)
+                return 1
 
     if week_status(args.week_start, generated_at.date()) == "futura":
         print("Itens semanais não aplicáveis: a semana informada é futura.")
@@ -2185,7 +2244,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     weekly_selected: dict[str, bool] = {}
     for key, destination in weekly_targets.items():
-        weekly_selected[key] = confirm_overwrite(destination)
+        weekly_selected[key] = should_overwrite(destination, force=args.force)
         if not weekly_selected[key]:
             print(f"Arquivo preservado: {destination}")
 
@@ -2259,14 +2318,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
     response_destination = report_output_path(args.week_start, RESPONSE_TIME_FILENAME)
-    if confirm_overwrite(response_destination):
-        manual_response = manual_response_time_path(args.week_start)
+    if should_overwrite(response_destination, force=args.force):
         try:
-            if manual_response.is_file():
+            if manual_response_rows is not None:
                 print(f"Usando o tempo de resposta informado manualmente: {manual_response}")
-                response_rows = build_manual_response_time_rows(
-                    manual_response, args.week_start, generated_at
-                )
+                response_rows = manual_response_rows
             else:
                 print("Verificando a disponibilidade do tempo de primeira resposta...")
                 response_rows = build_response_time_rows(args.week_start, generated_at)

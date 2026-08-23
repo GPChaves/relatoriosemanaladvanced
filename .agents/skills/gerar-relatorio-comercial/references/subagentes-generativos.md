@@ -1,0 +1,44 @@
+# Subagentes generativos
+
+Use esta referência depois que todos os CSVs quantitativos da semana forem validados.
+
+## Isolamento
+
+Crie cada agente com `fork_turns="none"`. O envelope deve conter somente:
+
+- o objetivo de escrever um único arquivo;
+- o caminho absoluto do prompt;
+- os caminhos absolutos das fontes declaradas no manifesto;
+- o caminho absoluto e exclusivo da saída;
+- a instrução de não ler outras semanas nem outras fontes.
+
+Agentes não devem compartilhar uma saída. Execute em ondas compatíveis com os slots disponíveis e espere a conclusão de toda onda antes de validar seus arquivos.
+
+## Atendimentos
+
+Prepare primeiro os três caminhos e hashes com `processar_atendimentos.py`.
+
+Crie três agentes isolados. Cada um recebe somente o prompt individual, um print e seu caminho `generativos/atendimentos/0N_analise.md`. Ele não pode abrir os outros dois prints, os outros textos nem os CSVs.
+
+Depois que as três análises forem validadas, crie um quarto agente limpo para `04_16_amostragem_qualitativa.md`. Ele recebe somente o prompt de consolidação e as três análises individuais; não recebe os prints nem acrescenta fatos aos casos.
+
+Finalize os artefatos qualitativos com o script para registrar hashes das imagens, análises e consolidação.
+
+## Seções quantitativas
+
+Leia `prompts/generativos/manifest.json`. Para cada item de `weekly`, crie um agente limpo com o prompt e os CSVs listados. Expanda `*.csv` somente dentro da pasta da semana.
+
+Execute `monthly` apenas quando o validador quantitativo indicar que o mês está efetivamente encerrado. Não gere uma nota mensal artificial em semanas comuns.
+
+## Envelope recomendado
+
+```text
+Escreva apenas ARQUIVO_SAIDA.
+Leia integralmente PROMPT e somente as FONTES listadas.
+PASTA_CSV é a pasta semanal informada abaixo.
+Não use fatos da conversa, de outras semanas ou conhecimento externo.
+Substitua a saída existente e não crie arquivos alternativos.
+Ao terminar, confirme o caminho gravado e uma validação curta; não cole o texto inteiro na resposta.
+```
+
+Se um agente falhar, corrija o problema concreto e repita no máximo uma vez em outro agente limpo. Nunca complete o texto faltante no agente principal.

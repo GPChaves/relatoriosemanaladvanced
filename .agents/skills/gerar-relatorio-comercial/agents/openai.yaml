@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gerar relatório comercial"
+  short_description: "Gera o relatório semanal da Advanced"
+  default_prompt: "Use $gerar-relatorio-comercial para gerar o relatório da semana."

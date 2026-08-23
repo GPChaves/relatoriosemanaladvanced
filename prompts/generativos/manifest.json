@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "weekly": [
+    {
+      "id": "04_08",
+      "prompt": "04_08_leitura_consultores.prompt.md",
+      "output": "04_08_leitura_consultores.md",
+      "inputs": ["04_conversao_responsavel.csv", "05_movimentacao_semanal.csv", "06_nota_metodologica_movimentacao.csv", "07_novos_leads_semana.csv", "08_etapas_por_consultor.csv", "09_tempo_medio_resposta.csv", "11_composicao_leads_perdidos.csv"]
+    },
+    {
+      "id": "04_10",
+      "prompt": "04_10_mudancas_significativas.prompt.md",
+      "output": "04_10_mudancas_significativas.md",
+      "inputs": ["04_conversao_responsavel.csv", "05_movimentacao_semanal.csv", "07_novos_leads_semana.csv", "08_etapas_por_consultor.csv", "09_tempo_medio_resposta.csv", "11_composicao_leads_perdidos.csv"]
+    },
+    {
+      "id": "04_12",
+      "prompt": "04_12_leitura_gerencial_semana.prompt.md",
+      "output": "04_12_leitura_gerencial_semana.md",
+      "inputs": ["*.csv"]
+    },
+    {
+      "id": "04_15",
+      "prompt": "04_15_auditoria_crm.prompt.md",
+      "output": "04_15_auditoria_crm.md",
+      "inputs": ["05_movimentacao_semanal.csv", "06_nota_metodologica_movimentacao.csv", "08_etapas_por_consultor.csv", "11_composicao_leads_perdidos.csv"]
+    },
+    {
+      "id": "04_17",
+      "prompt": "04_17_diferencas_consultores.prompt.md",
+      "output": "04_17_diferencas_consultores.md",
+      "inputs": ["04_conversao_responsavel.csv", "05_movimentacao_semanal.csv", "06_nota_metodologica_movimentacao.csv", "07_novos_leads_semana.csv", "08_etapas_por_consultor.csv", "09_tempo_medio_resposta.csv"]
+    },
+    {
+      "id": "04_18",
+      "prompt": "04_18_limitacoes_proximos_passos.prompt.md",
+      "output": "04_18_limitacoes_proximos_passos.md",
+      "inputs": ["*.csv"]
+    }
+  ],
+  "attendance": {
+    "individual_prompt": "04_16_analise_atendimento_individual.prompt.md",
+    "individual_outputs": ["atendimentos/01_analise.md", "atendimentos/02_analise.md", "atendimentos/03_analise.md"],
+    "consolidation_prompt": "04_16_amostragem_qualitativa.prompt.md",
+    "output": "04_16_amostragem_qualitativa.md"
+  },
+  "monthly": [
+    {
+      "id": "04_13",
+      "prompt": "04_13_leitura_gerencial_mes.prompt.md",
+      "output": "04_13_leitura_gerencial_mes.md",
+      "inputs": ["01_identificacao_periodo.csv", "02_distribuicao_mensal_responsavel.csv", "03_numeros_globais_etapas.csv", "13_analise_quantitativa_mes.csv", "14_resumo_consolidado_mes.csv"]
+    }
+  ]
+}

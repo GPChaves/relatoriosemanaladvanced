@@ -1,3 +1,4 @@
+import csv
 import tempfile
 import unittest
 from datetime import date
@@ -21,6 +22,17 @@ class FinalReportValidationTests(unittest.TestCase):
         self.assertIn("14_resumo_consolidado_mes.csv", names)
         self.assertIn("04_13_leitura_gerencial_mes.md", names)
         self.assertEqual(final.closing_month_for_week(date(2026, 7, 27)), "2026-07")
+
+    def test_monthly_outputs_wait_until_month_is_really_closed(self) -> None:
+        week_start = date(2026, 8, 31)
+        self.assertIsNone(final.closing_month_for_week(week_start, date(2026, 8, 31)))
+        self.assertEqual(
+            final.closing_month_for_week(week_start, date(2026, 9, 1)), "2026-08"
+        )
+
+    def test_every_required_weekly_narrative_is_rendered(self) -> None:
+        rendered = {filename for _, _, filename in final.MANAGEMENT_NARRATIVES}
+        self.assertEqual(rendered, set(final.WEEKLY_MARKDOWN_FILES))
 
     def test_validation_lists_every_missing_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +65,95 @@ class FinalReportValidationTests(unittest.TestCase):
     def test_dynamic_stage_labels_are_normalized(self) -> None:
         self.assertTrue(final.label_key("Perdido — Orçamento").startswith("perdido"))
         self.assertIn("servico iniciado", final.label_key("Serviço iniciado"))
+
+    def test_generate_pdf_smoke_with_all_weekly_narratives(self) -> None:
+        def write_csv(path: Path, row: dict[str, object]) -> None:
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+
+        with tempfile.TemporaryDirectory() as directory:
+            week_dir = Path(directory)
+            write_csv(
+                week_dir / "01_identificacao_periodo.csv",
+                {
+                    "titulo": "Relatório de Desempenho Comercial",
+                    "data_inicial": "2026-08-17",
+                    "data_final": "2026-08-23",
+                    "situacao_semana": "completa",
+                },
+            )
+            write_csv(
+                week_dir / "04_conversao_responsavel.csv",
+                {
+                    "responsavel_nome": "Ana",
+                    "total_leads_anterior": 10,
+                    "servicos_iniciados_anterior": 2,
+                    "total_leads_atual": 12,
+                    "servicos_iniciados_atual": 3,
+                },
+            )
+            write_csv(
+                week_dir / "05_movimentacao_semanal.csv",
+                {
+                    "status_dado": "disponivel",
+                    "responsavel_nome": "Ana",
+                    "atendimentos_semana_anterior": 8,
+                    "atendimentos_semana_atual": 9,
+                    "total_pares_usuario_lead_anterior": 8,
+                    "total_pares_usuario_lead_atual": 9,
+                    "leads_unicos_anterior": 7,
+                    "leads_unicos_atual": 8,
+                },
+            )
+            write_csv(week_dir / "06_nota_metodologica_movimentacao.csv", {"nota": "Teste"})
+            write_csv(
+                week_dir / "07_novos_leads_semana.csv",
+                {
+                    "responsavel_nome": "Ana",
+                    "novos_leads_anterior": 10,
+                    "novos_leads_atual": 12,
+                    "total_novos_leads_anterior": 10,
+                    "total_novos_leads_atual": 12,
+                },
+            )
+            write_csv(
+                week_dir / "08_etapas_por_consultor.csv",
+                {
+                    "responsavel_nome": "Ana",
+                    "categoria_relatorio": "Serviço iniciado",
+                    "quantidade_anterior": 2,
+                    "quantidade_atual": 3,
+                },
+            )
+            write_csv(
+                week_dir / "09_tempo_medio_resposta.csv",
+                {"status_dado": "indisponivel", "motivo_indisponibilidade": "Teste"},
+            )
+            write_csv(
+                week_dir / "11_composicao_leads_perdidos.csv",
+                {
+                    "motivo_perda": "Orçamento",
+                    "quantidade_anterior": 1,
+                    "percentual_anterior": 100,
+                    "quantidade_atual": 1,
+                    "percentual_atual": 100,
+                    "total_perdidos_anterior": 1,
+                    "total_perdidos_atual": 1,
+                },
+            )
+            generative_dir = week_dir / "generativos"
+            generative_dir.mkdir()
+            for name in final.WEEKLY_MARKDOWN_FILES:
+                (generative_dir / name).write_text(
+                    f"## {name.removesuffix('.md')}\n\nTexto validado para o teste.\n",
+                    encoding="utf-8",
+                )
+            output = week_dir / "report.pdf"
+            final.generate_pdf(week_dir, output, date(2026, 8, 17))
+            self.assertGreater(output.stat().st_size, 1_000)
+            self.assertEqual(output.read_bytes()[:4], b"%PDF")
 
 
 if __name__ == "__main__":

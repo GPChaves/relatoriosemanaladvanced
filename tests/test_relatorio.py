@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import relatorio
 
@@ -33,6 +34,24 @@ class PeriodIdentificationTests(unittest.TestCase):
     def test_week_that_closes_month(self) -> None:
         self.assertEqual(relatorio.closing_month(date(2026, 8, 31)), "2026-08")
 
+    def test_month_is_not_applicable_during_last_day(self) -> None:
+        self.assertEqual(
+            relatorio.applicable_month(date(2026, 8, 31), date(2026, 8, 31)),
+            "",
+        )
+
+    def test_month_is_applicable_after_it_has_ended(self) -> None:
+        self.assertEqual(
+            relatorio.applicable_month(date(2026, 8, 31), date(2026, 9, 1)),
+            "2026-08",
+        )
+
+    def test_month_applicability_handles_year_boundary(self) -> None:
+        self.assertEqual(
+            relatorio.applicable_month(date(2026, 12, 28), date(2027, 1, 1)),
+            "2026-12",
+        )
+
     def test_month_boundaries_in_december(self) -> None:
         self.assertEqual(
             relatorio.month_boundaries("2026-12"),
@@ -45,6 +64,15 @@ class PeriodIdentificationTests(unittest.TestCase):
             path.write_text("original", encoding="utf-8")
             self.assertFalse(relatorio.confirm_overwrite(path, lambda _: "não"))
             self.assertTrue(relatorio.confirm_overwrite(path, lambda _: "sim"))
+
+    def test_force_bypasses_interactive_confirmation(self) -> None:
+        with mock.patch.object(relatorio, "confirm_overwrite") as confirmation:
+            self.assertTrue(relatorio.should_overwrite(Path("existing.csv"), force=True))
+        confirmation.assert_not_called()
+
+    def test_week_start_must_be_monday(self) -> None:
+        with self.assertRaisesRegex(ValueError, "segunda-feira"):
+            relatorio.validate_week_start(date(2026, 8, 18))
 
     def test_csv_is_written_with_expected_columns(self) -> None:
         record = relatorio.build_identification(
@@ -60,6 +88,93 @@ class PeriodIdentificationTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["data_inicial"], "2026-08-17")
         self.assertEqual(rows[0]["data_final"], "2026-08-23")
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_parser_exposes_non_interactive_modes(self) -> None:
+        force = relatorio.build_parser().parse_args(
+            ["--week-start", "2026-08-17", "--force"]
+        )
+        validate = relatorio.build_parser().parse_args(
+            ["--week-start", "2026-08-17", "--validate-only"]
+        )
+
+        self.assertTrue(force.force)
+        self.assertFalse(force.validate_only)
+        self.assertTrue(validate.validate_only)
+        self.assertFalse(validate.force)
+
+    def test_validate_only_does_not_query_or_write(self) -> None:
+        config = relatorio.KommoConfig(
+            base_url="https://example.kommo.com", token="token"
+        )
+        with (
+            mock.patch.object(relatorio, "load_env_file"),
+            mock.patch.object(
+                relatorio.KommoConfig, "from_environment", return_value=config
+            ),
+            mock.patch.object(relatorio, "load_monthly_snapshot") as monthly,
+            mock.patch.object(relatorio, "load_weekly_snapshot") as weekly,
+            mock.patch.object(relatorio, "write_csv_atomic") as write_one,
+            mock.patch.object(relatorio, "write_csv_rows_atomic") as write_rows,
+        ):
+            exit_code = relatorio.main(
+                ["--week-start", "2026-08-17", "--validate-only"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        monthly.assert_not_called()
+        weekly.assert_not_called()
+        write_one.assert_not_called()
+        write_rows.assert_not_called()
+
+    def test_invalid_week_returns_usage_exit_code_before_writing(self) -> None:
+        config = relatorio.KommoConfig(
+            base_url="https://example.kommo.com", token="token"
+        )
+        with (
+            mock.patch.object(relatorio, "load_env_file"),
+            mock.patch.object(
+                relatorio.KommoConfig, "from_environment", return_value=config
+            ),
+            mock.patch.object(relatorio, "write_csv_atomic") as writer,
+        ):
+            exit_code = relatorio.main(
+                ["--week-start", "2026-08-18", "--validate-only"]
+            )
+
+        self.assertEqual(exit_code, 2)
+        writer.assert_not_called()
+
+    def test_validate_only_rejects_invalid_manual_response_before_api(self) -> None:
+        config = relatorio.KommoConfig(
+            base_url="https://example.kommo.com", token="token"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manual = Path(directory) / "tempo_resposta.csv"
+            manual.write_text(
+                "responsavel_nome;conversas_anterior;tempo_medio_minutos_anterior;"
+                "conversas_atual;tempo_medio_minutos_atual\nAna;1;-2;1;3\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(relatorio, "load_env_file"),
+                mock.patch.object(
+                    relatorio.KommoConfig, "from_environment", return_value=config
+                ),
+                mock.patch.object(
+                    relatorio, "manual_response_time_path", return_value=manual
+                ),
+                mock.patch.object(relatorio, "load_weekly_snapshot") as weekly,
+                mock.patch.object(relatorio, "write_csv_atomic") as writer,
+            ):
+                exit_code = relatorio.main(
+                    ["--week-start", "2026-08-17", "--validate-only"]
+                )
+
+        self.assertEqual(exit_code, 2)
+        weekly.assert_not_called()
+        writer.assert_not_called()
 
 
 class MonthlyDistributionTests(unittest.TestCase):

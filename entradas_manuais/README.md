@@ -32,24 +32,19 @@ O arquivo consolidado usado pelo PDF é `04_16_amostragem_qualitativa.md`.
 
 Os prints originais não entram no PDF. Antes de colocá-los na pasta, recorte ou cubra nome, telefone, placa, endereço e qualquer outro dado pessoal que não seja necessário para a análise.
 
-## Configuração da IA
+## Análise por IA
 
-Adicione ao `env.txt`:
-
-```text
-OPENAI_API_KEY=sua_chave_da_api
-OPENAI_MODEL=gpt-5.6-terra
-```
-
-Sem `OPENAI_MODEL`, o script usa `gpt-5.6-terra`. A chave da OpenAI é diferente do token da Kommo.
+Os scripts não chamam a API da OpenAI. A skill `gerar-relatorio-comercial` cria um subagente Codex isolado para cada print e outro para a consolidação. Assim, cada caso recebe somente sua própria imagem e o prompt correspondente.
 
 ## Execução
 
-Depois de preencher as duas pastas da semana:
+O fluxo recomendado é invocar a skill `gerar-relatorio-comercial`. Para validar manualmente os artefatos qualitativos:
 
 ```powershell
-python relatorio.py --week-start AAAA-MM-DD
-python gerar_relatorio_final.py --week-start AAAA-MM-DD
+python processar_atendimentos.py prepare --week-start AAAA-MM-DD
+# Os subagentes gravam as três análises e a consolidação.
+python processar_atendimentos.py finalize --week-start AAAA-MM-DD
+python processar_atendimentos.py validate --week-start AAAA-MM-DD
 ```
 
-O segundo comando valida os três prints, abre três análises independentes em paralelo, cria a consolidação e só então gera o PDF. Se uma saída já existir mas estiver desatualizada, o script pergunta antes de sobrescrevê-la. Para validar sem gerar nem sobrescrever, use `--validate-only` no segundo comando.
+O comando `finalize` registra hashes das imagens, dos textos individuais, do consolidado e do prompt. Qualquer alteração posterior faz `validate` falhar e exige nova análise.
