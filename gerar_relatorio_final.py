@@ -237,6 +237,16 @@ def pp(value: str | int | float | None) -> str:
     return f"{sign}{decimal_br(number)} p.p."
 
 
+def minutes(value: str | int | float | None, *, signed: bool = False) -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"", "n/c", "nc", "n/a", "na"}:
+        return "N/C"
+    number = as_float(value)
+    sign = "+" if signed and number > 0 else ""
+    digits = 0 if number.is_integer() else 1
+    return f"{sign}{decimal_br(number, digits)} min"
+
+
 def signed_int(value: int) -> str:
     return f"{value:+d}" if value else "0"
 
@@ -460,7 +470,13 @@ def table_flowable(
 
 
 def add_source(story: list[Flowable], styles: dict[str, ParagraphStyle], *names: str) -> None:
-    story.append(Paragraph(f"Fonte: {', '.join(names)}", styles["source"]))
+    # Os arquivos de apoio são validados, mas seus nomes não fazem parte da
+    # versão entregue ao cliente.
+    return None
+
+
+def movement_is_available(rows: list[dict[str, str]]) -> bool:
+    return bool(rows) and rows[0].get("status_dado", "disponivel") != "indisponivel"
 
 
 def add_section_title(story: list[Flowable], styles: dict[str, ParagraphStyle], title: str) -> None:
@@ -570,8 +586,8 @@ def executive_summary(
     previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
     current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
     lead_delta = current_leads - previous_leads
-    previous_total = sum(as_int(row.get("total_leads_anterior")) for row in conversion)
-    current_total = sum(as_int(row.get("total_leads_atual")) for row in conversion)
+    previous_total = previous_leads
+    current_total = current_leads
     previous_services = sum(as_int(row.get("servicos_iniciados_anterior")) for row in conversion)
     current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
     previous_rate = previous_services / previous_total * 100 if previous_total else 0
@@ -580,8 +596,11 @@ def executive_summary(
     previous_lost = as_int(losses[0].get("total_perdidos_anterior")) if losses else 0
     current_lost = as_int(losses[0].get("total_perdidos_atual")) if losses else 0
     leading_loss = max(losses, key=lambda row: as_int(row.get("quantidade_atual")), default={})
-    movement_previous = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if movement else 0
-    movement_current = as_int(movement[0].get("total_pares_usuario_lead_atual")) if movement else 0
+    has_movement = movement_is_available(movement)
+    movement_previous = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if has_movement else 0
+    movement_current = as_int(movement[0].get("total_pares_usuario_lead_atual")) if has_movement else 0
+    previous_open = max(0, previous_total - previous_services - previous_lost)
+    current_open = max(0, current_total - current_services - current_lost)
 
     bullets = [
         (
@@ -597,12 +616,12 @@ def executive_summary(
             f"<b>Perdas:</b> {current_lost} leads perdidos, contra {previous_lost}; "
             f"o motivo mais frequente foi {html.escape(leading_loss.get('motivo_perda', 'não identificado'))}."
         ),
-        (
-            f"<b>Uso do CRM:</b> {movement_current} combinações de usuário e lead com movimentação, "
-            f"ante {movement_previous}. Isso mostra atividade registrada, não a qualidade do atendimento."
-        ),
     ]
-    flowables: list[Flowable] = [Paragraph("Executive Summary — Resumo da semana", styles["h1"])]
+    if has_movement:
+        bullets.append(
+            f"<b>Atividade registrada:</b> {movement_current} movimentações, ante {movement_previous}."
+        )
+    flowables: list[Flowable] = [Paragraph("Resumo da semana", styles["h1"])]
     flowables.append(
         ListFlowable(
             [ListItem(Paragraph(item, styles["bullet"])) for item in bullets],
@@ -616,7 +635,7 @@ def executive_summary(
         ("Novos leads", str(current_leads), f"{signed_int(lead_delta)} vs. semana anterior"),
         ("Serviços iniciados", f"{decimal_br(current_rate)}%", pp(rate_delta)),
         ("Leads perdidos", str(current_lost), f"{signed_int(current_lost - previous_lost)} casos"),
-        ("Movimentações", str(movement_current), f"{signed_int(movement_current - movement_previous)} registros"),
+        ("Ainda em aberto", str(current_open), f"{signed_int(current_open - previous_open)} casos"),
     ]
     return flowables, cards
 
@@ -655,15 +674,16 @@ def add_weekly_comparison(
     current_lost_rate = current_lost / current_leads * 100 if current_leads else 0
     previous_open = max(0, previous_leads - previous_services - previous_lost)
     current_open = max(0, current_leads - current_services - current_lost)
-    previous_unique = as_int(movement[0].get("leads_unicos_anterior")) if movement else 0
-    current_unique = as_int(movement[0].get("leads_unicos_atual")) if movement else 0
-    previous_movements = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if movement else 0
-    current_movements = as_int(movement[0].get("total_pares_usuario_lead_atual")) if movement else 0
+    has_movement = movement_is_available(movement)
+    previous_unique = as_int(movement[0].get("leads_unicos_anterior")) if has_movement else 0
+    current_unique = as_int(movement[0].get("leads_unicos_atual")) if has_movement else 0
+    previous_movements = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if has_movement else 0
+    current_movements = as_int(movement[0].get("total_pares_usuario_lead_atual")) if has_movement else 0
 
     add_section_title(story, styles, "1. Comparação geral da semana")
     story.append(
         Paragraph(
-            "Esta tabela reúne o tamanho da entrada, os resultados e o uso do CRM. Assim, a semana atual pode ser comparada com a anterior sem procurar números em outras páginas.",
+            "Esta tabela reúne entrada e resultados para comparar os dois períodos de forma rápida.",
             styles["body"],
         )
     )
@@ -674,9 +694,14 @@ def add_weekly_comparison(
         ["Leads perdidos", previous_lost, current_lost, count_change(previous_lost, current_lost)],
         ["Taxa de perdas", pct(previous_lost_rate), pct(current_lost_rate), pp(current_lost_rate - previous_lost_rate)],
         ["Ainda em aberto", previous_open, current_open, count_change(previous_open, current_open)],
-        ["Leads únicos movimentados", previous_unique, current_unique, count_change(previous_unique, current_unique)],
-        ["Registros de movimentação", previous_movements, current_movements, count_change(previous_movements, current_movements)],
     ]
+    if has_movement:
+        overview_rows.extend(
+            [
+                ["Leads únicos movimentados", previous_unique, current_unique, count_change(previous_unique, current_unique)],
+                ["Registros de movimentação", previous_movements, current_movements, count_change(previous_movements, current_movements)],
+            ]
+        )
     story.append(
         table_flowable(
             ["Indicador", "Semana anterior", "Semana atual", "Mudança"],
@@ -778,16 +803,18 @@ def add_consultant_comparison(
             values.extend(count_cells(as_int(row.get("quantidade_anterior")), as_int(row.get("quantidade_atual"))))
         rows.append([category, *values])
 
-    values = []
-    for name in consultants:
-        row = movement_by_name.get(name, {})
-        values.extend(count_cells(as_int(row.get("atendimentos_semana_anterior")), as_int(row.get("atendimentos_semana_atual"))))
-    rows.append(["Movimentação no CRM", *values])
+    has_movement = movement_is_available(movement)
+    if has_movement:
+        values = []
+        for name in consultants:
+            row = movement_by_name.get(name, {})
+            values.extend(count_cells(as_int(row.get("atendimentos_semana_anterior")), as_int(row.get("atendimentos_semana_atual"))))
+        rows.append(["Atendimentos movimentados", *values])
 
     add_section_title(story, styles, "2. Comparação dos consultores")
     story.append(
         Paragraph(
-            "As colunas colocam os consultores lado a lado. As etapas abaixo são lidas diretamente dos CSVs, por isso novas categorias continuam aparecendo automaticamente se o funil mudar.",
+            "As colunas colocam os consultores lado a lado e mostram como os leads avançaram em cada período.",
             styles["body"],
         )
     )
@@ -799,7 +826,7 @@ def add_consultant_comparison(
     remaining = (CONTENT_WIDTH - first_width) / max(1, len(headers) - 1)
     story.append(table_flowable(headers, rows, styles, [first_width] + [remaining] * (len(headers) - 1)))
 
-    generic_movement = [row for row in movement if row.get("responsavel_nome", "") not in consultants]
+    generic_movement = [row for row in movement if has_movement and row.get("responsavel_nome", "") not in consultants]
     if generic_movement:
         details = "; ".join(
             f"{short_name(row.get('responsavel_nome', ''))}: {row.get('atendimentos_semana_anterior', '0')} → {row.get('atendimentos_semana_atual', '0')}"
@@ -807,7 +834,7 @@ def add_consultant_comparison(
         )
         story.append(
             Paragraph(
-                f"<b>Conta de apoio ou integração:</b> {html.escape(details)}. Esses registros ficam separados para não serem atribuídos aos consultores.",
+                f"<b>Sem consultor definido:</b> {html.escape(details)}.",
                 styles["note"],
             )
         )
@@ -866,20 +893,17 @@ def add_losses_and_response(
         response_rows = [
             [
                 short_name(row.get("responsavel_nome", "")),
-                row.get("conversas_anterior", ""),
-                row.get("tempo_medio_minutos_anterior", ""),
-                row.get("conversas_atual", ""),
-                row.get("tempo_medio_minutos_atual", ""),
-                row.get("variacao_minutos", ""),
+                minutes(row.get("tempo_medio_minutos_atual")),
+                minutes(row.get("variacao_minutos"), signed=True),
             ]
             for row in response
         ]
         story.append(
             table_flowable(
-                ["Responsável", "Conversas ant.", "Min. ant.", "Conversas atual", "Min. atual", "Mudança"],
+                ["Responsável", "Tempo atual", "Mudança"],
                 response_rows,
                 styles,
-                [44 * mm, 25 * mm, 22 * mm, 25 * mm, 22 * mm, 28 * mm],
+                [72 * mm, 48 * mm, 48 * mm],
             )
         )
     add_source(story, styles, "09_tempo_medio_resposta.csv")
@@ -995,9 +1019,9 @@ def add_management_narratives(
     add_source(story, styles, "04_12_leitura_gerencial_semana.md")
 
     for number, title, filename in (
-        ("6.", "Pontos para conferir no CRM", "04_15_auditoria_crm.md"),
+        ("6.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
         ("7.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
-        ("8.", "O que ainda falta medir", "04_18_limitacoes_proximos_passos.md"),
+        ("8.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
     ):
         # A seção final precisa de uma página quase inteira; as demais só não
         # devem começar quando restar pouco espaço.
@@ -1051,7 +1075,7 @@ def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
 
     canvas.setFillColor(colors.HexColor("#9FB3C5"))
     canvas.setFont(FONT, 8)
-    canvas.drawString(20 * mm, 24 * mm, "Gerado automaticamente a partir dos outputs validados da Kommo")
+    canvas.drawString(20 * mm, 24 * mm, "Relatório de acompanhamento comercial")
     canvas.drawRightString(width - 20 * mm, 24 * mm, datetime.now().strftime("%d/%m/%Y %H:%M"))
     canvas.restoreState()
 
@@ -1085,7 +1109,7 @@ def generate_pdf(week_dir: Path, output_path: Path, week_start: date) -> None:
     story.append(Spacer(1, 4 * mm))
     story.append(
         Paragraph(
-            "Os números comparam os leads que entraram nas duas semanas e mostram a situação no dia da extração. Mudanças de taxa aparecem em pontos percentuais.",
+            "A comparação usa a mesma quantidade de dias nos dois períodos. Mudanças de taxa aparecem em pontos percentuais.",
             styles["note"],
         )
     )

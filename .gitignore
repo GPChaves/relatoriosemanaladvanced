@@ -4,3 +4,11 @@ tmp/
 __pycache__/
 *.py[cod]
 *.tmp
+
+# Dados operacionais fornecidos para cada semana. Preserve apenas os modelos.
+entradas_manuais/tempo_resposta/*
+!entradas_manuais/tempo_resposta/_modelo/
+!entradas_manuais/tempo_resposta/_modelo/**
+entradas_manuais/atendimentos/*
+!entradas_manuais/atendimentos/_modelo/
+!entradas_manuais/atendimentos/_modelo/**
