@@ -13,14 +13,17 @@ O relatório possui quatro objetivos centrais:
 
 ## 2. Princípios de elaboração
 
-### 2.1. Separar atividade de entrada de leads
+### 2.1. Separar atividade, fechamento e entrada de leads
 
 O relatório deve distinguir:
 
 - **leads movimentados:** todos os leads que tiveram alguma atividade no período, independentemente da data de criação;
+- **leads fechados:** leads que chegaram a **Serviço iniciado** ou **Perdido** no período; esse é o universo das análises de conversão, etapas terminais, perdas e distribuição por responsável;
 - **novos leads:** somente os leads criados dentro do período analisado.
 
-Essa separação impede que um consultor com negociações mais longas pareça inativo apenas porque trabalha leads originados em semanas anteriores.
+Na rota da API, o fechamento é datado pelo evento de mudança de etapa. Se o mesmo lead chegar mais de uma vez a etapas terminais na mesma semana, somente a última transição terminal daquela semana entra nos indicadores; todas as transições ficam no arquivo de auditoria. Não é feita reconciliação adicional com `closed_at`. Na rota XLSX, que não contém histórico de eventos, usa-se a data de fechamento combinada à etapa terminal atual como aproximação explícita. Eventos de movimentação continuam sendo apurados pela data do próprio evento.
+
+Em todos os indicadores de lead, a atribuição ao consultor deve usar exclusivamente o campo personalizado **Usuário responsável** extraído da ficha do lead. O responsável padrão da Kommo, o autor do evento, quem mudou a etapa e quem preencheu a ficha não podem ser usados como substitutos. Valor vazio deve ser exibido como **Sem usuário responsável**.
 
 ### 2.2. Separar fato, interpretação e recomendação
 
@@ -34,7 +37,7 @@ Uma hipótese não deve ser apresentada como causa comprovada sem evidência suf
 
 ### 2.3. Considerar o amadurecimento dos leads
 
-Resultados da semana mais recente são provisórios. Leads agendados ou em andamento ainda podem se converter, inclusive em semanas posteriores. Por isso, a taxa imediata de conversão não deve ser tratada automaticamente como definitiva.
+Leads agendados ou em andamento não entram no universo de fechamentos até chegarem a **Serviço iniciado** ou **Perdido**. Por isso, a taxa semanal de conversão descreve o resultado dos leads fechados naquela semana; ela não é uma taxa de conversão da coorte de novos leads da mesma semana.
 
 ### 2.4. Comparar percentuais em pontos percentuais
 
@@ -100,7 +103,7 @@ Seções analíticas devem priorizar mudanças que tenham relevância operaciona
 
 **Exibição:** condicional. Esta seção aparece somente no relatório referente à última semana do mês.
 
-**Conteúdo:** total de atendimentos ou leads do mês distribuído por responsável, com quantidade e participação percentual. Um usuário genérico da empresa pode aparecer quando existirem leads ainda atribuídos à conta institucional ou sem consultor individual definido.
+**Conteúdo:** total de leads cuja última transição terminal no mês foi para **Serviço iniciado** ou **Perdido**, distribuído pelo campo personalizado **Usuário responsável**, com quantidade e participação percentual.
 
 **Objetivo:** mostrar como o volume mensal foi distribuído entre os responsáveis e revelar concentração, desequilíbrio de carga ou problemas de atribuição no CRM.
 
@@ -108,22 +111,21 @@ Seções analíticas devem priorizar mudanças que tenham relevância operaciona
 
 **Cuidados:**
 
-- informar claramente se a contagem representa novos leads, leads movimentados ou outro universo;
+- informar claramente que a contagem representa fechamentos, não novos leads nem movimentações;
 - não interpretar participação como produtividade ou qualidade sem considerar volume, maturidade e resultado dos leads;
-- investigar percentuais relevantes atribuídos ao usuário genérico da empresa.
+- investigar percentuais relevantes em **Sem usuário responsável**.
 
 ### 4.3. Números globais — etapas do lead
 
 **Exibição:** no consolidado do universo analisado; quando representar o mês completo, integra o bloco condicional de fechamento mensal.
 
-**Conteúdo:** quantidade de leads por etapa do funil, separada por responsável e acompanhada do total e do percentual correspondente.
+**Conteúdo:** quantidade de leads pela última transição terminal no período, separada entre **Serviço iniciado** e **Perdido**, por responsável e acompanhada do total e do percentual correspondente.
 
 **Objetivo:** apresentar o destino dos leads e medir o desempenho global do funil. A seção permite enxergar quantos converteram, quantos ainda podem avançar e quantos foram perdidos por cada motivo.
 
 **Perguntas respondidas:**
 
 - quantos leads chegaram a serviço iniciado?
-- quantos permanecem ativos ou agendados?
 - quantos foram perdidos?
 - quais motivos concentram as perdas?
 - como esses resultados se distribuem entre os consultores?
@@ -131,9 +133,7 @@ Seções analíticas devem priorizar mudanças que tenham relevância operaciona
 #### Definição das etapas
 
 - **Serviço iniciado (conversão):** o cliente efetivamente iniciou o serviço. É o principal resultado comercial consumado.
-- **Agendado:** o cliente marcou uma data, mas o serviço ainda não começou. Representa uma conversão intermediária e não deve ser somado automaticamente a serviço iniciado.
-- **Aguardando resposta / Aguardando resposta 2:** lead ainda aberto, aguardando retorno ou acompanhamento. Não deve ser classificado como perdido enquanto existir uma possibilidade razoável de continuidade.
-- **Etapa de leads de entrada:** contato recém-chegado que ainda não recebeu uma classificação mais avançada.
+- **Etapas abertas:** agendado, aguardando resposta e etapas de entrada não entram nos indicadores de fechamento; continuam aparecendo apenas na análise mensal da coorte criada, quando aplicável.
 - **Perdido — abandonou a conversa:** o cliente parou de responder antes de uma decisão ou objeção concreta.
 - **Perdido — orçamento/preço:** o valor foi o motivo determinante da não contratação.
 - **Perdido — serviço:** a demanda não corresponde ao serviço oferecido ou não pôde ser atendida.
@@ -147,21 +147,21 @@ Seções analíticas devem priorizar mudanças que tenham relevância operaciona
 
 **Exibição:** sempre que houver base suficiente para calcular a taxa individual.
 
-**Conteúdo:** taxa de serviços iniciados de cada responsável, calculada sobre o universo de leads atribuído a ele no período correspondente. Quando houver dados comparáveis da semana anterior, apresentar para cada responsável as colunas **Semana anterior**, **Semana atual** e **Variação (p.p.)**.
+**Conteúdo:** taxa de serviços iniciados de cada responsável, calculada sobre os leads cuja última transição terminal da semana foi para **Serviço iniciado** ou **Perdido**. A atribuição usa o campo personalizado **Usuário responsável** da extração. Quando houver dados comparáveis da semana anterior, apresentar para cada responsável as colunas **Semana anterior**, **Semana atual** e **Variação (p.p.)**.
 
 **Objetivo:** comparar a capacidade de transformar oportunidades em serviços iniciados, sem depender somente do número absoluto de conversões.
 
 **Fórmula:**
 
-`taxa de conversão = serviços iniciados ÷ total de leads do responsável × 100`
+`taxa de conversão = serviços iniciados ÷ (serviços iniciados + perdidos) do responsável × 100`
 
-**Cuidados:** informar qual universo foi usado no denominador e considerar o estágio de maturação dos leads. Uma taxa baseada em leads recentes pode estar incompleta. A variação só é válida quando as duas taxas foram calculadas com a mesma definição de conversão e o mesmo tipo de universo.
+**Cuidados:** informar que o denominador contém somente desfechos terminais da semana e não representa todos os leads criados ou trabalhados. A variação só é válida quando as duas taxas foram calculadas com a mesma definição e o mesmo tipo de universo.
 
 ### 4.5. Movimentação na última semana
 
 **Exibição:** obrigatória no relatório semanal.
 
-**Conteúdo:** quantidade de leads efetivamente movimentados por cada consultor durante a semana e sua participação no total. A tabela deve mostrar a participação da semana anterior, a participação da semana atual e a diferença entre elas em uma coluna independente de **Variação (p.p.)**. A variação não deve ser colocada entre parênteses na mesma célula do percentual atual.
+**Conteúdo:** quantidade de pares distintos entre lead com evento e **Usuário responsável** do lead durante a semana, com participação no total. A tabela deve mostrar a participação da semana anterior, a participação da semana atual e a diferença entre elas em uma coluna independente de **Variação (p.p.)**. O autor do evento não define a atribuição.
 
 **Estrutura mínima da tabela:**
 
@@ -173,9 +173,9 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Objetivo:** medir a atividade operacional real dos consultores, incluindo o acompanhamento de leads criados anteriormente.
 
-**Pergunta respondida:** quem trabalhou os atendimentos durante a semana e como o volume foi dividido?
+**Pergunta respondida:** em quais carteiras de responsáveis houve atividade registrada e como esse volume foi dividido?
 
-**Cuidados:** esta tabela não representa necessariamente entrada de novos leads. Ela mede atividade no período. Todas as participações percentuais devem usar o total de leads movimentados da respectiva semana como denominador.
+**Cuidados:** esta tabela não prova quem executou pessoalmente cada ação, pois outro consultor pode ter ajudado a preencher a ficha ou mudar a etapa. Ela mede atividade nos leads atribuídos pelo campo personalizado. Todas as participações percentuais devem usar o total de pares responsável–lead da respectiva semana como denominador.
 
 ### 4.6. Nota metodológica sobre movimentação
 
@@ -212,7 +212,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Exibição:** obrigatória quando houver volume suficiente por consultor.
 
-**Conteúdo:** para cada consultor, tabela com quantidade e percentual de leads em cada etapa, seguida de uma leitura individual. Sempre que houver dados comparáveis da semana anterior, cada taxa por etapa deve ser acompanhada pelas colunas **% na semana anterior**, **% na semana atual** e **Variação (p.p.)**.
+**Conteúdo:** para cada consultor, tabela com quantidade e percentual de leads cuja última transição terminal do período foi **Serviço iniciado** ou **Perdido**, seguida de uma leitura individual. Sempre que houver dados comparáveis da semana anterior, cada taxa deve ser acompanhada pelas colunas **% na semana anterior**, **% na semana atual** e **Variação (p.p.)**.
 
 **Estrutura recomendada da tabela individual:**
 
@@ -224,8 +224,6 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 **A tabela individual deve permitir avaliar:**
 
 - conversão em serviço iniciado;
-- agendamentos;
-- leads em acompanhamento;
 - abandono de conversas;
 - composição das perdas;
 - possíveis diferenças no tempo de vida do lead.
@@ -278,7 +276,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Exibição:** quando houver quantidade suficiente de perdas para produzir percentuais interpretáveis.
 
-**Conteúdo:** comparação dos motivos de perda nas duas semanas mais recentes, com quantidade, participação dentro do total de perdidos e uma coluna dedicada de **Variação (p.p.)** para cada motivo.
+**Conteúdo:** comparação dos motivos de perda entre os leads cuja última transição terminal de cada uma das duas semanas foi **Perdido**, com quantidade, participação dentro do total de perdidos e uma coluna dedicada de **Variação (p.p.)** para cada motivo.
 
 **Estrutura mínima da tabela:**
 
@@ -320,6 +318,8 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 **Exibição:** condicional. Esta seção aparece somente no relatório da última semana do mês.
 
 **Conteúdo:** comparação de todas as semanas do mês, seguida do consolidado mensal. Deve incluir, conforme disponibilidade, novos leads, serviços iniciados, agendados, perdidos e em andamento. Para cada taxa semanal, mostrar também a variação em pontos percentuais em relação à semana imediatamente anterior, seja em coluna adjacente ou em uma tabela comparativa complementar.
+
+Neste bloco, os resultados acompanham a coorte de leads **criados** no mês e seu estado atual. Portanto, seus totais não precisam coincidir com as seções mensais de distribuição e etapas, cujo universo é formado pelos leads com transição terminal no mês.
 
 **Objetivo:** fornecer uma visão do comportamento do mês inteiro, identificar semanas fortes ou fracas e contextualizar o resultado mensal para além da última semana.
 
@@ -369,13 +369,13 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 ### 4.16. Amostragem qualitativa dos atendimentos
 
-**Exibição:** obrigatória quando existir a pasta manual da semana com os três prints de atendimento; indisponível quando não houver amostra documentada.
+**Exibição:** obrigatória quando existir a pasta manual da semana com três atendimentos documentados; indisponível quando não houver amostra.
 
-**Conteúdo:** análise de exatamente três prints escolhidos para a semana. Cada print deve ser enviado isoladamente a um agente diferente, sem acesso aos outros casos. A saída deve registrar contexto visível, pontos positivos, oportunidades de melhoria, melhor próximo passo, exemplo curto de resposta e limites do print.
+**Conteúdo:** análise de exatamente três atendimentos escolhidos para a semana. Cada caso pode ser fornecido como print PNG/JPG ou como transcrição TXT copiada da conversa. Cada fonte deve ser enviada isoladamente a um agente diferente, sem acesso aos outros casos. A saída deve registrar contexto observado, pontos positivos, oportunidades de melhoria, melhor próximo passo, exemplo curto de resposta e limites da fonte.
 
-**Entrada manual:** `entradas_manuais/atendimentos/AAAA-MM-DD/`, com exatamente três arquivos PNG ou JPG. Qualquer outra quantidade bloqueia a geração. Os prints são ligados às análises por SHA-256; trocar uma imagem invalida o texto antigo.
+**Entrada manual:** `entradas_manuais/atendimentos/AAAA-MM-DD/`, com exatamente três arquivos em qualquer combinação de PNG, JPG ou TXT. Qualquer outra quantidade bloqueia a geração. As fontes são ligadas às análises por SHA-256; trocar uma imagem ou transcrição invalida o texto antigo.
 
-**Saídas:** três análises individuais em `generativos/atendimentos/` e um arquivo consolidado `04_16_amostragem_qualitativa.md`. Os prints originais não são inseridos no PDF.
+**Saídas:** três análises individuais em `generativos/atendimentos/` e um arquivo consolidado `04_16_amostragem_qualitativa.md`. As fontes originais não são inseridas no PDF.
 
 **Objetivo:** avaliar aspectos que as métricas não conseguem medir, como qualidade da comunicação, domínio técnico, entendimento da objeção, defesa de valor, proatividade, acompanhamento e pressão comercial.
 
@@ -391,7 +391,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 - momento correto de encerrar o lead;
 - precisão do registro no CRM.
 
-**Cuidados:** ocultar nome, telefone, placa, endereço e demais dados pessoais antes de colocar os prints na pasta. As análises não devem reproduzir esses dados. Três casos geram indícios e ações de treinamento, não conclusões universais sobre a equipe.
+**Cuidados:** remover nome, telefone, placa, endereço e demais dados pessoais antes de colocar imagens ou transcrições na pasta. As análises não devem reproduzir esses dados. Três casos geram indícios e ações de treinamento, não conclusões universais sobre a equipe.
 
 ### 4.17. Diferenças observadas entre os consultores
 

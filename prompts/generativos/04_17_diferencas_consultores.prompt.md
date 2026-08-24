@@ -10,6 +10,8 @@
 
 Leia `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv` e `09_tempo_medio_resposta.csv` em `PASTA_CSV`.
 
+Use cada base com seu significado: conversão e etapas representam leads que chegaram a **Serviço iniciado** ou **Perdido** no período; novos leads representam criações; movimentação representa eventos. Não some nem confronte diretamente esses volumes como se fossem o mesmo universo. Para atribuição entre consultores, considere exclusivamente o campo personalizado **Usuário responsável**.
+
 Produza `## Diferenças observadas entre os consultores`.
 
 Compare somente diferenças quantitativas sustentadas pelos dados: volume recebido, participação nos novos leads, movimentação, conversão e composição atual das etapas. Para cada diferença relevante:

@@ -33,13 +33,15 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Funil de vendas": self.pipeline_name,
                 "Data Criada": "10/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
+                "Data Fechada": "23/08/2026 17:00",
             },
             {
                 "Lead usuário responsável": "Bruno",
                 "Etapa do lead": "Perdido (Orçamento)",
                 "Funil de vendas": self.pipeline_name,
                 "Data Criada": "11/08/2026 09:00",
-                "Última modificação": "23/08/2026 18:00",
+                "Última modificação": "16/08/2026 18:00",
+                "Data Fechada": "16/08/2026 17:00",
             },
             {
                 "Lead usuário responsável": "Alice",
@@ -47,6 +49,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Funil de vendas": self.pipeline_name,
                 "Data Criada": "17/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
+                "Data Fechada": "",
             },
             {
                 "Lead usuário responsável": "Carla",
@@ -54,6 +57,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Funil de vendas": self.pipeline_name,
                 "Data Criada": "18/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
+                "Data Fechada": "23/08/2026 17:00",
             },
             {
                 "Lead usuário responsável": "Advanced Mecânica",
@@ -61,6 +65,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Funil de vendas": self.pipeline_name,
                 "Data Criada": "19/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
+                "Data Fechada": "23/08/2026 17:00",
             },
             {
                 "Lead usuário responsável": "Ignorado",
@@ -68,6 +73,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Funil de vendas": "Outro pipeline",
                 "Data Criada": "20/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
+                "Data Fechada": "",
             },
         ]
         pd.DataFrame(rows).to_excel(self.source, index=False)
@@ -99,19 +105,31 @@ class ImportKommoExportTests(unittest.TestCase):
 
         conversion = pd.read_csv(output_dir / "04_conversao_responsavel.csv")
         self.assertEqual(
-            set(conversion["responsavel_nome"]), {"Alice", "Bruno", "Carla"}
+            set(conversion["responsavel_nome"]),
+            {"Alice", "Bruno", "Carla", "Advanced Mecânica"},
         )
         self.assertNotIn(
             importer.UNASSIGNED_RESPONSIBLE,
             set(conversion["responsavel_nome"]),
         )
         self.assertEqual(set(conversion["pipeline_nome"]), {self.pipeline_name})
+        self.assertEqual(
+            set(conversion["universo"]),
+            {"leads_fechados_no_periodo_por_data_de_fechamento"},
+        )
+        alice = conversion[conversion["responsavel_nome"] == "Alice"].iloc[0]
+        self.assertEqual(alice["total_leads_atual"], 1)
 
         new_leads = pd.read_csv(output_dir / "07_novos_leads_semana.csv")
-        self.assertIn(
-            importer.UNASSIGNED_RESPONSIBLE, set(new_leads["responsavel_nome"])
-        )
+        self.assertIn("Advanced Mecânica", set(new_leads["responsavel_nome"]))
+        self.assertNotIn(importer.UNASSIGNED_RESPONSIBLE, set(new_leads["responsavel_nome"]))
         self.assertNotIn("Ignorado", set(new_leads["responsavel_nome"]))
+        self.assertEqual(new_leads["total_novos_leads_anterior"].iloc[0], 2)
+        self.assertEqual(new_leads["total_novos_leads_atual"].iloc[0], 3)
+
+        closures = pd.read_csv(output_dir / "10_eventos_fechamento.csv")
+        self.assertEqual(len(closures), 4)
+        self.assertEqual(set(closures["considerado_no_indicador"]), {"sim"})
 
     def test_missing_manual_input_leaves_no_partial_outputs(self) -> None:
         missing_manual = self.root / "nao-existe.csv"
@@ -125,6 +143,16 @@ class ImportKommoExportTests(unittest.TestCase):
                     self.output_root,
                     pipeline_name=self.pipeline_name,
                 )
+        self.assertFalse(self.output_root.exists())
+
+    def test_invalid_close_date_is_rejected_before_writing_outputs(self) -> None:
+        frame = pd.read_excel(self.source)
+        frame.loc[0, "Data Fechada"] = "data inválida"
+        frame.to_excel(self.source, index=False)
+
+        with self.assertRaisesRegex(ValueError, "Data Fechada.*data inválida"):
+            self._build()
+
         self.assertFalse(self.output_root.exists())
 
     def test_existing_output_requires_force_and_preserves_other_artifacts(self) -> None:

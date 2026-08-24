@@ -60,6 +60,7 @@ WEEKLY_CSV_FILES = (
     "07_novos_leads_semana.csv",
     "08_etapas_por_consultor.csv",
     "09_tempo_medio_resposta.csv",
+    "10_eventos_fechamento.csv",
     "11_composicao_leads_perdidos.csv",
 )
 MONTHLY_CSV_FILES = (
@@ -506,15 +507,15 @@ def markdown_flowables(
         if not stripped:
             index += 1
             continue
-        if stripped.startswith("## "):
-            if skip_first_h2 and not skipped:
+        heading = re.match(r"^(#{2,6})\s+(.+)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            text = heading.group(2)
+            if level == 2 and skip_first_h2 and not skipped:
                 skipped = True
             else:
-                output.append(Paragraph(inline_markup(stripped[3:]), styles["h1"]))
-            index += 1
-            continue
-        if stripped.startswith("### "):
-            output.append(Paragraph(inline_markup(stripped[4:]), styles["h2"]))
+                style = styles["h1"] if level == 2 else styles["h2"] if level == 3 else styles["h3"]
+                output.append(Paragraph(inline_markup(text), style))
             index += 1
             continue
         if stripped.startswith("| ") and index + 1 < len(lines) and re.match(
@@ -556,8 +557,26 @@ def markdown_flowables(
                 item_text = re.sub(r"^\s*\d+\.\s+", "", lines[index]).strip()
                 items.append(ListItem(Paragraph(inline_markup(item_text), styles["bullet"])))
                 index += 1
-            output.append(ListFlowable(items, bulletType="1", leftIndent=18, bulletFontName=FONT_BOLD))
-            output.append(Spacer(1, 1.5 * mm))
+            grouped: list[Flowable] = []
+            if (
+                output
+                and isinstance(output[-1], Paragraph)
+                and output[-1].style.name
+                in {styles["h1"].name, styles["h2"].name, styles["h3"].name}
+            ):
+                grouped.append(output.pop())
+            grouped.extend(
+                [
+                    ListFlowable(
+                        items,
+                        bulletType="1",
+                        leftIndent=18,
+                        bulletFontName=FONT_BOLD,
+                    ),
+                    Spacer(1, 1.5 * mm),
+                ]
+            )
+            output.append(KeepTogether(grouped))
             continue
         if stripped.startswith(">"):
             output.append(Paragraph(inline_markup(stripped.lstrip("> ")), styles["note"]))
@@ -568,7 +587,11 @@ def markdown_flowables(
         index += 1
         while index < len(lines):
             candidate = lines[index].strip()
-            if not candidate or candidate.startswith(("## ", "### ", "|", ">")):
+            if (
+                not candidate
+                or re.match(r"^#{2,6}\s+", candidate)
+                or candidate.startswith(("|", ">"))
+            ):
                 break
             if re.match(r"^[-*]\s+|^\d+\.\s+", candidate):
                 break
@@ -593,8 +616,8 @@ def executive_summary(
     previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
     current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
     lead_delta = current_leads - previous_leads
-    previous_total = previous_leads
-    current_total = current_leads
+    previous_total = sum(as_int(row.get("total_leads_anterior")) for row in conversion)
+    current_total = sum(as_int(row.get("total_leads_atual")) for row in conversion)
     previous_services = sum(as_int(row.get("servicos_iniciados_anterior")) for row in conversion)
     current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
     previous_rate = previous_services / previous_total * 100 if previous_total else 0
@@ -606,8 +629,6 @@ def executive_summary(
     has_movement = movement_is_available(movement)
     movement_previous = as_int(movement[0].get("total_pares_usuario_lead_anterior")) if has_movement else 0
     movement_current = as_int(movement[0].get("total_pares_usuario_lead_atual")) if has_movement else 0
-    previous_open = max(0, previous_total - previous_services - previous_lost)
-    current_open = max(0, current_total - current_services - current_lost)
 
     bullets = [
         (
@@ -617,7 +638,8 @@ def executive_summary(
         ),
         (
             f"<b>Serviços iniciados:</b> {current_services} em "
-            f"{current_total} leads ({decimal_br(current_rate)}%), variação de {pp(rate_delta)}."
+            f"{current_total} leads que chegaram a uma etapa terminal no período "
+            f"({decimal_br(current_rate)}%), variação de {pp(rate_delta)}."
         ),
         (
             f"<b>Perdas:</b> {current_lost} leads perdidos, contra {previous_lost}; "
@@ -642,7 +664,7 @@ def executive_summary(
         ("Novos leads", str(current_leads), f"{signed_int(lead_delta)} vs. semana anterior"),
         ("Serviços iniciados", f"{decimal_br(current_rate)}%", pp(rate_delta)),
         ("Leads perdidos", str(current_lost), f"{signed_int(current_lost - previous_lost)} casos"),
-        ("Ainda em aberto", str(current_open), f"{signed_int(current_open - previous_open)} casos"),
+        ("Leads fechados", str(current_total), f"{signed_int(current_total - previous_total)} casos"),
     ]
     return flowables, cards
 
@@ -675,12 +697,10 @@ def add_weekly_comparison(
     current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
     previous_lost = as_int(losses[0].get("total_perdidos_anterior")) if losses else 0
     current_lost = as_int(losses[0].get("total_perdidos_atual")) if losses else 0
-    previous_rate = previous_services / previous_leads * 100 if previous_leads else 0
-    current_rate = current_services / current_leads * 100 if current_leads else 0
-    previous_lost_rate = previous_lost / previous_leads * 100 if previous_leads else 0
-    current_lost_rate = current_lost / current_leads * 100 if current_leads else 0
-    previous_open = max(0, previous_leads - previous_services - previous_lost)
-    current_open = max(0, current_leads - current_services - current_lost)
+    previous_closed = sum(as_int(row.get("total_leads_anterior")) for row in conversion)
+    current_closed = sum(as_int(row.get("total_leads_atual")) for row in conversion)
+    previous_rate = previous_services / previous_closed * 100 if previous_closed else 0
+    current_rate = current_services / current_closed * 100 if current_closed else 0
     has_movement = movement_is_available(movement)
     previous_unique = as_int(movement[0].get("leads_unicos_anterior")) if has_movement else 0
     current_unique = as_int(movement[0].get("leads_unicos_atual")) if has_movement else 0
@@ -690,17 +710,17 @@ def add_weekly_comparison(
     add_section_title(story, styles, "1. Comparação geral da semana")
     story.append(
         Paragraph(
-            "Esta tabela reúne entrada e resultados para comparar os dois períodos de forma rápida.",
+            "Esta tabela compara os períodos sem misturar as bases: novos leads usam "
+            "a criação; conversão e perdas usam a chegada às etapas terminais; movimentação usa eventos.",
             styles["body"],
         )
     )
     overview_rows = [
         ["Novos leads", previous_leads, current_leads, count_change(previous_leads, current_leads)],
+        ["Leads fechados", previous_closed, current_closed, count_change(previous_closed, current_closed)],
         ["Serviços iniciados", previous_services, current_services, count_change(previous_services, current_services)],
         ["Taxa de serviço iniciado", pct(previous_rate), pct(current_rate), pp(current_rate - previous_rate)],
         ["Leads perdidos", previous_lost, current_lost, count_change(previous_lost, current_lost)],
-        ["Taxa de perdas", pct(previous_lost_rate), pct(current_lost_rate), pp(current_lost_rate - previous_lost_rate)],
-        ["Ainda em aberto", previous_open, current_open, count_change(previous_open, current_open)],
     ]
     if has_movement:
         overview_rows.extend(
@@ -861,7 +881,8 @@ def add_losses_and_response(
     add_section_title(story, styles, "3. Motivos de perda")
     story.append(
         Paragraph(
-            "A tabela mostra quantidade e percentual sobre todos os leads perdidos de cada semana.",
+            "A tabela mostra quantidade e percentual entre os leads que chegaram a uma etapa terminal "
+            "em cada semana cujo estado atual é perdido.",
             styles["body"],
         )
     )
@@ -1177,7 +1198,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--attendance-input-root",
         type=Path,
         default=DEFAULT_ATTENDANCE_INPUT_ROOT,
-        help="Raiz das pastas semanais com exatamente três prints de atendimento.",
+        help="Raiz das pastas semanais com exatamente três atendimentos em imagem ou texto.",
     )
     return parser
 

@@ -10,6 +10,8 @@
 
 Leia todos os CSVs de `PASTA_CSV` e produza `## Leitura gerencial da semana`.
 
+Distinga claramente três bases: leads que chegaram a **Serviço iniciado** ou **Perdido** no período (conversão, etapas e perdas), leads **criados** no período (novos leads) e eventos ocorridos no período (movimentação). Não trate diferenças entre essas bases como inconsistência automática. A atribuição dos indicadores de lead usa somente o campo personalizado **Usuário responsável**.
+
 Escolha de 3 a 5 insights realmente acionáveis. Para cada insight:
 
 1. comece com uma frase em negrito que declare o fato principal;

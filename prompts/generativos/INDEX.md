@@ -18,7 +18,7 @@ Cada texto deve ser produzido por um agente com contexto limpo. O agente lê som
 | 4.13 | `04_13_leitura_gerencial_mes.prompt.md` | `04_13_leitura_gerencial_mes.md` | Apenas em fechamento mensal |
 | 4.15 | `04_15_auditoria_crm.prompt.md` | `04_15_auditoria_crm.md` | Quando os dados sustentarem alertas de uso do CRM |
 | 4.16 | `04_16_amostragem_qualitativa.prompt.md` | `04_16_amostragem_qualitativa.md` | Quando houver dados de conversas ou amostra documentada |
-| 4.16 individual | `04_16_analise_atendimento_individual.prompt.md` | `atendimentos/01_analise.md` a `03_analise.md` | Exatamente três prints, cada um analisado isoladamente |
+| 4.16 individual | `04_16_analise_atendimento_individual.prompt.md` | `atendimentos/01_analise.md` a `03_analise.md` | Exatamente três fontes PNG/JPG/TXT, cada uma analisada isoladamente |
 | 4.17 | `04_17_diferencas_consultores.prompt.md` | `04_17_diferencas_consultores.md` | Quando houver evidência comparável suficiente |
 | 4.18 | `04_18_limitacoes_proximos_passos.prompt.md` | `04_18_limitacoes_proximos_passos.md` | Sempre que houver limitações materiais |
 
@@ -28,7 +28,7 @@ Cada texto deve ser produzido por um agente com contexto limpo. O agente lê som
 2. Crie um agente limpo por texto e forneça os caminhos absolutos de suas entradas e saída.
 3. Mantenha o nome estável do arquivo de saída. Não acrescente datas, versões, `(1)` ou timestamps.
 4. Substitua integralmente uma saída anterior da mesma semana.
-5. Para a seção 4.16, analise cada print em um agente isolado antes de criar a consolidação em um quarto agente limpo.
+5. Para a seção 4.16, analise cada imagem ou transcrição em um agente isolado antes de criar a consolidação em um quarto agente limpo.
 
 ## Regras comuns
 

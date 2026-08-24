@@ -23,7 +23,7 @@
       "id": "04_15",
       "prompt": "04_15_auditoria_crm.prompt.md",
       "output": "04_15_auditoria_crm.md",
-      "inputs": ["05_movimentacao_semanal.csv", "06_nota_metodologica_movimentacao.csv", "08_etapas_por_consultor.csv", "11_composicao_leads_perdidos.csv"]
+      "inputs": ["05_movimentacao_semanal.csv", "06_nota_metodologica_movimentacao.csv", "08_etapas_por_consultor.csv", "10_eventos_fechamento.csv", "11_composicao_leads_perdidos.csv"]
     },
     {
       "id": "04_17",

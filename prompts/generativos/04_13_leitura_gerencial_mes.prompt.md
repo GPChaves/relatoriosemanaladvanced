@@ -12,6 +12,8 @@ Verifique em `01_identificacao_periodo.csv` se a semana fecha o mês. Se não fe
 
 Quando aplicável, leia `02_distribuicao_mensal_responsavel.csv`, `03_numeros_globais_etapas.csv`, `13_analise_quantitativa_mes.csv` e `14_resumo_consolidado_mes.csv` e produza `## Análise completa do mês — leitura gerencial`.
 
+Os arquivos `02` e `03` usam a última transição terminal de cada lead no mês para **Serviço iniciado** ou **Perdido**. Os arquivos `13` e `14` acompanham os leads **criados** no mês e seu estado atual. Não tente fazer os totais desses dois universos coincidirem e explique a diferença quando ela for relevante. A atribuição por consultor usa somente o campo personalizado **Usuário responsável**.
+
 O texto deve:
 
 - abrir com 2 a 4 conclusões executivas em lista;

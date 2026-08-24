@@ -18,11 +18,11 @@ Agentes não devem compartilhar uma saída. Execute em ondas compatíveis com os
 
 Prepare primeiro os três caminhos e hashes com `processar_atendimentos.py`.
 
-Crie três agentes isolados. Cada um recebe somente o prompt individual, um print e seu caminho `generativos/atendimentos/0N_analise.md`. Ele não pode abrir os outros dois prints, os outros textos nem os CSVs.
+Crie três agentes isolados. Cada um recebe somente o prompt individual, uma fonte e seu caminho `generativos/atendimentos/0N_analise.md`. Para `type=image`, o agente deve inspecionar somente a imagem indicada; para `type=text`, deve ler somente o TXT indicado. Ele não pode abrir as outras duas fontes, os outros textos nem os CSVs.
 
-Depois que as três análises forem validadas, crie um quarto agente limpo para `04_16_amostragem_qualitativa.md`. Ele recebe somente o prompt de consolidação e as três análises individuais; não recebe os prints nem acrescenta fatos aos casos.
+Depois que as três análises forem validadas, crie um quarto agente limpo para `04_16_amostragem_qualitativa.md`. Ele recebe somente o prompt de consolidação e as três análises individuais; não recebe as fontes originais nem acrescenta fatos aos casos.
 
-Finalize os artefatos qualitativos com o script para registrar hashes das imagens, análises e consolidação.
+Finalize os artefatos qualitativos com o script para registrar tipos e hashes das fontes, análises e consolidação.
 
 ## Seções quantitativas
 

@@ -66,6 +66,65 @@ class FinalReportValidationTests(unittest.TestCase):
         self.assertTrue(final.label_key("Perdido — Orçamento").startswith("perdido"))
         self.assertIn("servico iniciado", final.label_key("Serviço iniciado"))
 
+    def test_markdown_fourth_level_heading_is_rendered_without_hashes(self) -> None:
+        final.register_fonts()
+        flowables = final.markdown_flowables(
+            "## Seção\n\n#### Resumo do que aparece\n\nTexto.",
+            final.build_styles(),
+        )
+        rendered_text = [getattr(flowable, "text", "") for flowable in flowables]
+        self.assertIn("Resumo do que aparece", rendered_text)
+        self.assertNotIn("#### Resumo do que aparece", rendered_text)
+
+    def test_numbered_markdown_list_is_kept_together(self) -> None:
+        final.register_fonts()
+        flowables = final.markdown_flowables(
+            "## Seção\n\n### Lista\n\n1. Primeiro\n2. Segundo",
+            final.build_styles(),
+        )
+        self.assertEqual(len(flowables), 1)
+        self.assertEqual(type(flowables[0]).__name__, "KeepTogether")
+
+    def test_executive_summary_uses_closed_leads_as_conversion_denominator(self) -> None:
+        def write_csv(path: Path, row: dict[str, object]) -> None:
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+
+        with tempfile.TemporaryDirectory() as directory:
+            week_dir = Path(directory)
+            write_csv(
+                week_dir / "07_novos_leads_semana.csv",
+                {"total_novos_leads_anterior": 80, "total_novos_leads_atual": 100},
+            )
+            write_csv(
+                week_dir / "04_conversao_responsavel.csv",
+                {
+                    "total_leads_anterior": 10,
+                    "total_leads_atual": 20,
+                    "servicos_iniciados_anterior": 2,
+                    "servicos_iniciados_atual": 10,
+                },
+            )
+            write_csv(week_dir / "05_movimentacao_semanal.csv", {"status_dado": "indisponivel"})
+            write_csv(
+                week_dir / "11_composicao_leads_perdidos.csv",
+                {
+                    "motivo_perda": "Orçamento",
+                    "total_perdidos_anterior": 1,
+                    "total_perdidos_atual": 2,
+                    "quantidade_atual": 2,
+                },
+            )
+
+            final.register_fonts()
+            _, cards = final.executive_summary(week_dir, final.build_styles())
+
+        self.assertEqual(cards[1][1], "50,0%")
+        self.assertEqual(cards[3][0], "Leads fechados")
+        self.assertEqual(cards[3][1], "20")
+
     def test_generate_pdf_smoke_with_all_weekly_narratives(self) -> None:
         def write_csv(path: Path, row: dict[str, object]) -> None:
             with path.open("w", encoding="utf-8", newline="") as handle:

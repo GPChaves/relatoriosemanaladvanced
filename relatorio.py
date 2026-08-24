@@ -32,6 +32,7 @@ MANUAL_INPUT_ROOT = PROJECT_ROOT / "entradas_manuais"
 MANUAL_RESPONSE_ROOT = MANUAL_INPUT_ROOT / "tempo_resposta"
 MANUAL_ATTENDANCE_ROOT = MANUAL_INPUT_ROOT / "atendimentos"
 REPORT_TIMEZONE_NAME = "America/Sao_Paulo"
+RESPONSIBLE_NAME_SUFFIX = " - Advanced Mecânica Especializada"
 IDENTIFICATION_FILENAME = "01_identificacao_periodo.csv"
 MONTHLY_DISTRIBUTION_FILENAME = "02_distribuicao_mensal_responsavel.csv"
 GLOBAL_STAGES_FILENAME = "03_numeros_globais_etapas.csv"
@@ -41,11 +42,13 @@ MOVEMENT_METHOD_FILENAME = "06_nota_metodologica_movimentacao.csv"
 WEEKLY_NEW_LEADS_FILENAME = "07_novos_leads_semana.csv"
 CONSULTANT_STAGES_FILENAME = "08_etapas_por_consultor.csv"
 RESPONSE_TIME_FILENAME = "09_tempo_medio_resposta.csv"
+CLOSURE_EVENTS_FILENAME = "10_eventos_fechamento.csv"
 LOST_COMPOSITION_FILENAME = "11_composicao_leads_perdidos.csv"
 MONTHLY_WEEKS_FILENAME = "13_analise_quantitativa_mes.csv"
 MONTHLY_SUMMARY_FILENAME = "14_resumo_consolidado_mes.csv"
 MONTHLY_DISTRIBUTION_FIELDS = [
     "mes_referencia",
+    "universo",
     "pipeline_id",
     "pipeline_nome",
     "responsavel_id",
@@ -58,6 +61,7 @@ MONTHLY_DISTRIBUTION_FIELDS = [
 ]
 GLOBAL_STAGES_FIELDS = [
     "mes_referencia",
+    "universo",
     "pipeline_id",
     "pipeline_nome",
     "responsavel_id",
@@ -126,6 +130,7 @@ MOVEMENT_METHOD_FIELDS = [
 WEEKLY_NEW_LEADS_FIELDS = [
     "pipeline_id",
     "pipeline_nome",
+    "universo",
     "responsavel_id",
     "responsavel_nome",
     "novos_leads_anterior",
@@ -143,6 +148,7 @@ WEEKLY_NEW_LEADS_FIELDS = [
 CONSULTANT_STAGES_FIELDS = [
     "pipeline_id",
     "pipeline_nome",
+    "universo",
     "responsavel_id",
     "responsavel_nome",
     "categoria_relatorio",
@@ -177,6 +183,7 @@ RESPONSE_TIME_FIELDS = [
 LOST_COMPOSITION_FIELDS = [
     "pipeline_id",
     "pipeline_nome",
+    "universo",
     "loss_reason_id",
     "motivo_perda",
     "quantidade_anterior",
@@ -191,6 +198,7 @@ LOST_COMPOSITION_FIELDS = [
 ]
 MONTHLY_WEEKS_FIELDS = [
     "mes_referencia",
+    "universo",
     "semana_numero",
     "periodo_inicio",
     "periodo_fim",
@@ -212,6 +220,7 @@ MONTHLY_WEEKS_FIELDS = [
 ]
 MONTHLY_SUMMARY_FIELDS = [
     "mes_referencia",
+    "universo",
     "pipeline_id",
     "pipeline_nome",
     "novos_leads",
@@ -225,6 +234,21 @@ MONTHLY_SUMMARY_FIELDS = [
     "taxa_em_andamento",
     "data_hora_extracao",
 ]
+CLOSURE_EVENTS_FIELDS = [
+    "periodo",
+    "lead_id",
+    "evento_id",
+    "data_hora_evento",
+    "status_destino_id",
+    "status_destino_nome",
+    "usuario_responsavel",
+    "considerado_no_indicador",
+    "data_hora_extracao",
+]
+WON_STATUS_ID = 142
+LOST_STATUS_ID = 143
+RESPONSIBLE_CUSTOM_FIELD_NAME = "Usuário responsável"
+UNASSIGNED_RESPONSIBLE = "Sem usuário responsável"
 
 
 class KommoApiError(RuntimeError):
@@ -372,6 +396,10 @@ class MonthlySnapshot:
     users: dict[int, dict[str, object]]
     loss_reasons: list[dict[str, object]]
     leads: list[dict[str, object]]
+    created_leads: list[dict[str, object]] = field(default_factory=list)
+    outcome_events: list[dict[str, object]] = field(default_factory=list)
+    lead_details: dict[int, dict[str, object]] = field(default_factory=dict)
+    responsible_field_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -379,8 +407,12 @@ class WeeklySnapshot:
     pipeline: dict[str, object]
     users: dict[int, dict[str, object]]
     leads: list[dict[str, object]]
+    created_leads: list[dict[str, object]] = field(default_factory=list)
     loss_reasons: list[dict[str, object]] = field(default_factory=list)
     events: list[dict[str, object]] = field(default_factory=list)
+    outcome_events: list[dict[str, object]] = field(default_factory=list)
+    lead_details: dict[int, dict[str, object]] = field(default_factory=dict)
+    responsible_field_id: int | None = None
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
@@ -624,12 +656,21 @@ def select_main_pipeline(client: KommoReadOnlyClient) -> dict[str, object]:
     return candidates[0]
 
 
+def compact_responsible_name(value: object) -> str:
+    name = str(value or "").strip()
+    if name.endswith(RESPONSIBLE_NAME_SUFFIX):
+        return name[: -len(RESPONSIBLE_NAME_SUFFIX)].rstrip()
+    return name
+
+
 def fetch_users(client: KommoReadOnlyClient) -> dict[int, dict[str, object]]:
     users: dict[int, dict[str, object]] = {}
     for user in iter_kommo_collection(client, "/api/v4/users", "users"):
         user_id = user.get("id")
         if isinstance(user_id, int):
-            users[user_id] = user
+            normalized_user = dict(user)
+            normalized_user["name"] = compact_responsible_name(user.get("name"))
+            users[user_id] = normalized_user
     return users
 
 
@@ -645,6 +686,58 @@ def fetch_loss_reasons(client: KommoReadOnlyClient) -> list[dict[str, object]]:
     )
 
 
+def fetch_responsible_custom_field(client: KommoReadOnlyClient) -> dict[str, object]:
+    matches = [
+        custom_field
+        for custom_field in iter_kommo_collection(
+            client, "/api/v4/leads/custom_fields", "custom_fields"
+        )
+        if str(custom_field.get("name") or "").strip().casefold()
+        == RESPONSIBLE_CUSTOM_FIELD_NAME.casefold()
+    ]
+    if len(matches) != 1:
+        raise KommoApiError(
+            "Não foi possível identificar exatamente um campo personalizado de lead "
+            f"chamado {RESPONSIBLE_CUSTOM_FIELD_NAME!r}."
+        )
+    field_id = matches[0].get("id")
+    if not isinstance(field_id, int):
+        raise KommoApiError(
+            f"O campo personalizado {RESPONSIBLE_CUSTOM_FIELD_NAME!r} retornou ID inválido."
+        )
+    return matches[0]
+
+
+def lead_custom_responsible_name(
+    lead: Mapping[str, object], responsible_field_id: int | None
+) -> str:
+    if responsible_field_id is None:
+        return UNASSIGNED_RESPONSIBLE
+    custom_fields = lead.get("custom_fields_values")
+    if not isinstance(custom_fields, list):
+        return UNASSIGNED_RESPONSIBLE
+    for custom_field in custom_fields:
+        if not isinstance(custom_field, dict) or custom_field.get("field_id") != responsible_field_id:
+            continue
+        values = custom_field.get("values")
+        if not isinstance(values, list):
+            return UNASSIGNED_RESPONSIBLE
+        populated = [
+            str(value.get("value") or "").strip()
+            for value in values
+            if isinstance(value, dict) and str(value.get("value") or "").strip()
+        ]
+        if not populated:
+            return UNASSIGNED_RESPONSIBLE
+        if len(populated) != 1:
+            raise KommoApiError(
+                f"O lead {lead.get('id', 'sem ID')} possui mais de um valor em "
+                f"{RESPONSIBLE_CUSTOM_FIELD_NAME!r}."
+            )
+        return populated[0]
+    return UNASSIGNED_RESPONSIBLE
+
+
 def fetch_period_leads(
     client: KommoReadOnlyClient,
     pipeline_id: int,
@@ -652,23 +745,26 @@ def fetch_period_leads(
     period_end_exclusive: date,
     tz: tzinfo,
     *,
+    date_field: str,
     include_loss_reason: bool = False,
 ) -> Iterator[dict[str, object]]:
+    if date_field != "created_at":
+        raise ValueError("date_field deve ser 'created_at'.")
     start_at = datetime.combine(period_start, datetime.min.time(), tzinfo=tz)
     end_at = datetime.combine(period_end_exclusive, datetime.min.time(), tzinfo=tz)
     params = {
-        "filter[created_at][from]": int(start_at.timestamp()),
-        "filter[created_at][to]": int(end_at.timestamp()) - 1,
+        f"filter[{date_field}][from]": int(start_at.timestamp()),
+        f"filter[{date_field}][to]": int(end_at.timestamp()) - 1,
         "filter[pipeline_id][]": pipeline_id,
-        "order[created_at]": "asc",
+        f"order[{date_field}]": "asc",
     }
     if include_loss_reason:
         params["with"] = "loss_reason"
     for lead in iter_kommo_collection(client, "/api/v4/leads", "leads", params):
-        created_at = lead.get("created_at")
-        if not isinstance(created_at, int):
+        period_timestamp = lead.get(date_field)
+        if not isinstance(period_timestamp, int):
             continue
-        if not int(start_at.timestamp()) <= created_at < int(end_at.timestamp()):
+        if not int(start_at.timestamp()) <= period_timestamp < int(end_at.timestamp()):
             continue
         if lead.get("pipeline_id") != pipeline_id:
             continue
@@ -681,6 +777,8 @@ def fetch_month_leads(
     month_start: date,
     next_month: date,
     tz: tzinfo,
+    *,
+    date_field: str,
 ) -> Iterator[dict[str, object]]:
     return fetch_period_leads(
         client,
@@ -688,6 +786,7 @@ def fetch_month_leads(
         month_start,
         next_month,
         tz,
+        date_field=date_field,
         include_loss_reason=True,
     )
 
@@ -700,6 +799,8 @@ def fetch_period_events(
     *,
     entity: str | None = None,
     event_type: str | None = None,
+    target_pipeline_id: int | None = None,
+    target_status_id: int | None = None,
 ) -> list[dict[str, object]]:
     start_at = datetime.combine(period_start, datetime.min.time(), tzinfo=tz)
     end_at = datetime.combine(period_end_exclusive, datetime.min.time(), tzinfo=tz)
@@ -711,6 +812,11 @@ def fetch_period_events(
         params["filter[entity]"] = entity
     if event_type:
         params["filter[type]"] = event_type
+    if (target_pipeline_id is None) != (target_status_id is None):
+        raise ValueError("pipeline e etapa de destino devem ser informados juntos.")
+    if target_pipeline_id is not None and target_status_id is not None:
+        params["filter[value_after][leads_statuses][0][pipeline_id]"] = target_pipeline_id
+        params["filter[value_after][leads_statuses][0][status_id]"] = target_status_id
     events = list(iter_kommo_collection(client, "/api/v4/events", "events", params))
     return [
         event
@@ -720,6 +826,115 @@ def fetch_period_events(
         <= int(event["created_at"])
         < int(end_at.timestamp())
     ]
+
+
+def event_lead_status(
+    event: Mapping[str, object], value_key: str = "value_after"
+) -> tuple[int, int] | None:
+    changes = event.get(value_key)
+    if not isinstance(changes, list):
+        return None
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        lead_status = change.get("lead_status")
+        if not isinstance(lead_status, dict):
+            continue
+        status_id = lead_status.get("id")
+        pipeline_id = lead_status.get("pipeline_id")
+        if isinstance(status_id, int) and isinstance(pipeline_id, int):
+            return pipeline_id, status_id
+    return None
+
+
+def fetch_terminal_events(
+    client: KommoReadOnlyClient,
+    pipeline_id: int,
+    period_start: date,
+    period_end_exclusive: date,
+    tz: tzinfo,
+) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for status_id in (WON_STATUS_ID, LOST_STATUS_ID):
+        candidates = fetch_period_events(
+            client,
+            period_start,
+            period_end_exclusive,
+            tz,
+            entity="lead",
+            event_type="lead_status_changed",
+            target_pipeline_id=pipeline_id,
+            target_status_id=status_id,
+        )
+        events.extend(
+            event
+            for event in candidates
+            if event_lead_status(event) == (pipeline_id, status_id)
+        )
+    unique: dict[tuple[object, object, object], dict[str, object]] = {}
+    for event in events:
+        key = (event.get("id"), event.get("entity_id"), event.get("created_at"))
+        unique[key] = event
+    return sorted(
+        unique.values(),
+        key=lambda event: (
+            int(event.get("created_at") or 0),
+            str(event.get("id") or ""),
+        ),
+    )
+
+
+def select_weekly_terminal_events(
+    events: Iterable[Mapping[str, object]], week_start: date
+) -> dict[tuple[str, int], Mapping[str, object]]:
+    selected: dict[tuple[str, int], Mapping[str, object]] = {}
+    for event in events:
+        timestamp = event.get("created_at")
+        lead_id = event.get("entity_id")
+        if not isinstance(timestamp, int) or not isinstance(lead_id, int):
+            continue
+        bucket = weekly_bucket(timestamp, week_start)
+        if bucket is None:
+            continue
+        key = (bucket, lead_id)
+        current = selected.get(key)
+        current_key = (
+            int(current.get("created_at") or 0),
+            str(current.get("id") or ""),
+        ) if current is not None else (-1, "")
+        candidate_key = (timestamp, str(event.get("id") or ""))
+        if candidate_key >= current_key:
+            selected[key] = event
+    return selected
+
+
+def select_monthly_terminal_events(
+    events: Iterable[Mapping[str, object]],
+) -> dict[int, Mapping[str, object]]:
+    """Select the last terminal transition for each lead within the month."""
+    selected: dict[int, Mapping[str, object]] = {}
+    for event in events:
+        timestamp = event.get("created_at")
+        lead_id = event.get("entity_id")
+        if not isinstance(timestamp, int) or not isinstance(lead_id, int):
+            continue
+        current = selected.get(lead_id)
+        current_key = (
+            int(current.get("created_at") or 0),
+            str(current.get("id") or ""),
+        ) if current is not None else (-1, "")
+        candidate_key = (timestamp, str(event.get("id") or ""))
+        if candidate_key >= current_key:
+            selected[lead_id] = event
+    return selected
+
+
+def terminal_status_name(status_id: int) -> str:
+    if status_id == WON_STATUS_ID:
+        return "Serviço iniciado"
+    if status_id == LOST_STATUS_ID:
+        return "Perdido"
+    return f"Etapa {status_id}"
 
 
 def fetch_leads_by_ids(
@@ -755,10 +970,27 @@ def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
 
     users = fetch_users(client)
     loss_reasons = fetch_loss_reasons(client)
+    responsible_field = fetch_responsible_custom_field(client)
+    responsible_field_id = int(responsible_field["id"])
     month_start, next_month = month_boundaries(month_reference)
-    leads = list(
+    outcome_events = fetch_terminal_events(
+        client, pipeline_id, month_start, next_month, report_timezone()
+    )
+    outcome_lead_ids = [
+        int(event["entity_id"])
+        for event in outcome_events
+        if isinstance(event.get("entity_id"), int)
+    ]
+    lead_details = fetch_leads_by_ids(client, outcome_lead_ids)
+    leads = list(lead_details.values())
+    created_leads = list(
         fetch_month_leads(
-            client, pipeline_id, month_start, next_month, report_timezone()
+            client,
+            pipeline_id,
+            month_start,
+            next_month,
+            report_timezone(),
+            date_field="created_at",
         )
     )
     return MonthlySnapshot(
@@ -766,6 +998,10 @@ def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
         users=users,
         loss_reasons=loss_reasons,
         leads=leads,
+        created_leads=created_leads,
+        outcome_events=outcome_events,
+        lead_details=lead_details,
+        responsible_field_id=responsible_field_id,
     )
 
 
@@ -783,15 +1019,25 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
 
     users = fetch_users(client)
     loss_reasons = fetch_loss_reasons(client)
+    responsible_field = fetch_responsible_custom_field(client)
+    responsible_field_id = int(responsible_field["id"])
     previous_week_start = week_start - timedelta(days=7)
     current_week_end_exclusive = week_start + timedelta(days=7)
-    leads = list(
+    outcome_events = fetch_terminal_events(
+        client,
+        pipeline_id,
+        previous_week_start,
+        current_week_end_exclusive,
+        report_timezone(),
+    )
+    created_leads = list(
         fetch_period_leads(
             client,
             pipeline_id,
             previous_week_start,
             current_week_end_exclusive,
             report_timezone(),
+            date_field="created_at",
             include_loss_reason=True,
         )
     )
@@ -804,11 +1050,15 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
     )
     event_lead_ids = [
         event_id
-        for event in events
+        for event in [*events, *outcome_events]
         for event_id in [event.get("entity_id")]
         if isinstance(event_id, int)
     ]
     event_leads = fetch_leads_by_ids(client, event_lead_ids)
+    for lead in created_leads:
+        lead_id = lead.get("id")
+        if isinstance(lead_id, int):
+            event_leads.setdefault(lead_id, lead)
     main_pipeline_events = [
         event
         for event in events
@@ -819,51 +1069,80 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
     return WeeklySnapshot(
         pipeline=pipeline,
         users=users,
-        leads=leads,
+        leads=[
+            event_leads[lead_id]
+            for lead_id in sorted(
+                {
+                    int(event["entity_id"])
+                    for event in outcome_events
+                    if isinstance(event.get("entity_id"), int)
+                    and int(event["entity_id"]) in event_leads
+                }
+            )
+        ],
+        created_leads=created_leads,
         loss_reasons=loss_reasons,
         events=main_pipeline_events,
+        outcome_events=outcome_events,
+        lead_details=event_leads,
+        responsible_field_id=responsible_field_id,
     )
 
 
+def monthly_terminal_records(
+    snapshot: MonthlySnapshot,
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for lead_id, event in sorted(
+        select_monthly_terminal_events(snapshot.outcome_events).items(),
+        key=lambda item: (int(item[1].get("created_at") or 0), item[0]),
+    ):
+        lead = snapshot.lead_details.get(lead_id)
+        if lead is None:
+            raise KommoApiError(
+                f"O lead {lead_id} referenciado por um evento de fechamento não foi retornado."
+            )
+        target = event_lead_status(event)
+        if target is None or target[1] not in {WON_STATUS_ID, LOST_STATUS_ID}:
+            continue
+        records.append(
+            {
+                "lead_id": lead_id,
+                "event": event,
+                "lead": lead,
+                "status_id": target[1],
+                "responsavel_nome": lead_custom_responsible_name(
+                    lead, snapshot.responsible_field_id
+                ),
+            }
+        )
+    return records
+
+
 def build_monthly_distribution_rows(
-    leads: Iterable[Mapping[str, object]],
-    users: Mapping[int, Mapping[str, object]],
-    pipeline: Mapping[str, object],
+    snapshot: MonthlySnapshot,
     month_reference: str,
     extracted_at: datetime,
 ) -> list[dict[str, object]]:
-    counts: Counter[int] = Counter()
-    for lead in leads:
-        responsible_id = lead.get("responsible_user_id")
-        counts[responsible_id if isinstance(responsible_id, int) else 0] += 1
+    counts: Counter[str] = Counter(
+        str(record["responsavel_nome"])
+        for record in monthly_terminal_records(snapshot)
+    )
 
     total = sum(counts.values())
     rows: list[dict[str, object]] = []
-    for responsible_id, quantity in sorted(
-        counts.items(), key=lambda item: (-item[1], item[0])
+    for responsible_name, quantity in sorted(
+        counts.items(), key=lambda item: (-item[1], item[0].casefold())
     ):
-        user = users.get(responsible_id)
-        if user is None:
-            responsible_name = (
-                "Sem responsável"
-                if responsible_id == 0
-                else f"Usuário não localizado (ID {responsible_id})"
-            )
-            active = "desconhecido"
-        else:
-            responsible_name = str(user.get("name") or f"Usuário {responsible_id}")
-            rights = user.get("rights")
-            is_active = rights.get("is_active") if isinstance(rights, dict) else None
-            active = "sim" if is_active is True else "não" if is_active is False else "desconhecido"
-
         rows.append(
             {
                 "mes_referencia": month_reference,
-                "pipeline_id": pipeline.get("id", ""),
-                "pipeline_nome": pipeline.get("name", ""),
-                "responsavel_id": responsible_id or "",
+                "universo": "leads_com_ultima_transicao_terminal_no_mes",
+                "pipeline_id": snapshot.pipeline.get("id", ""),
+                "pipeline_nome": snapshot.pipeline.get("name", ""),
+                "responsavel_id": "",
                 "responsavel_nome": responsible_name,
-                "usuario_ativo": active,
+                "usuario_ativo": "não aplicável",
                 "quantidade_leads": quantity,
                 "participacao_percentual": round(quantity / total * 100, 1) if total else 0.0,
                 "total_leads_mes": total,
@@ -952,7 +1231,7 @@ def build_global_stage_rows(
 
     for status in statuses:
         status_id = status.get("id")
-        if not isinstance(status_id, int) or status_id == lost_status_id:
+        if status_id != WON_STATUS_ID:
             continue
         add_category(status_id, status_names[status_id])
 
@@ -968,13 +1247,12 @@ def build_global_stage_rows(
                 )
         add_category(lost_status_id, lost_status_name)
 
-    counts: Counter[tuple[int, int, int | None]] = Counter()
-    responsible_totals: Counter[int] = Counter()
-    for lead in snapshot.leads:
-        responsible_value = lead.get("responsible_user_id")
-        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
-        status_value = lead.get("status_id")
-        status_id = status_value if isinstance(status_value, int) else 0
+    counts: Counter[tuple[str, int, int | None]] = Counter()
+    responsible_totals: Counter[str] = Counter()
+    for record in monthly_terminal_records(snapshot):
+        lead = record["lead"]
+        responsible_name = str(record["responsavel_nome"])
+        status_id = int(record["status_id"])
         reason_value = lead.get("loss_reason_id")
         reason_id = (
             reason_value
@@ -994,36 +1272,30 @@ def build_global_stage_rows(
                     reason_name = f"Motivo não localizado (ID {reason_id})"
             add_category(status_id, status_name, reason_id, reason_name)
 
-        counts[(responsible_id, status_id, reason_id)] += 1
-        responsible_totals[responsible_id] += 1
+        counts[(responsible_name, status_id, reason_id)] += 1
+        responsible_totals[responsible_name] += 1
 
-    total_general = len(snapshot.leads)
+    total_general = sum(responsible_totals.values())
     ordered_responsibles = sorted(
         responsible_totals,
-        key=lambda responsible_id: (-responsible_totals[responsible_id], responsible_id),
+        key=lambda responsible_name: (
+            -responsible_totals[responsible_name],
+            responsible_name.casefold(),
+        ),
     )
     rows: list[dict[str, object]] = []
-    for responsible_id in ordered_responsibles:
-        user = snapshot.users.get(responsible_id)
-        if user is None:
-            responsible_name = (
-                "Sem responsável"
-                if responsible_id == 0
-                else f"Usuário não localizado (ID {responsible_id})"
-            )
-        else:
-            responsible_name = str(user.get("name") or f"Usuário {responsible_id}")
-
-        total_responsible = responsible_totals[responsible_id]
+    for responsible_name in ordered_responsibles:
+        total_responsible = responsible_totals[responsible_name]
         for category in categories:
             status_id, reason_id = category["key"]
-            quantity = counts[(responsible_id, status_id, reason_id)]
+            quantity = counts[(responsible_name, status_id, reason_id)]
             rows.append(
                 {
                     "mes_referencia": month_reference,
+                    "universo": "leads_com_ultima_transicao_terminal_no_mes",
                     "pipeline_id": snapshot.pipeline.get("id", ""),
                     "pipeline_nome": snapshot.pipeline.get("name", ""),
-                    "responsavel_id": responsible_id or "",
+                    "responsavel_id": "",
                     "responsavel_nome": responsible_name,
                     "categoria_relatorio": category["label"],
                     "status_id": status_id or "",
@@ -1054,9 +1326,7 @@ def generate_monthly_distribution(
     extracted_at: datetime,
 ) -> int:
     rows = build_monthly_distribution_rows(
-        snapshot.leads,
-        snapshot.users,
-        snapshot.pipeline,
+        snapshot,
         month_reference,
         extracted_at,
     )
@@ -1072,7 +1342,7 @@ def generate_global_stages(
 ) -> int:
     rows = build_global_stage_rows(snapshot, month_reference, extracted_at)
     consolidated_total = sum(int(row["quantidade_leads"]) for row in rows)
-    if consolidated_total != len(snapshot.leads):
+    if consolidated_total != len(monthly_terminal_records(snapshot)):
         raise KommoApiError(
             "A soma das etapas não corresponde ao total de leads extraídos."
         )
@@ -1080,71 +1350,125 @@ def generate_global_stages(
     return consolidated_total
 
 
+def weekly_terminal_records(
+    snapshot: WeeklySnapshot, week_start: date
+) -> list[dict[str, object]]:
+    selected = select_weekly_terminal_events(snapshot.outcome_events, week_start)
+    records: list[dict[str, object]] = []
+    for (bucket, lead_id), event in sorted(
+        selected.items(),
+        key=lambda item: (
+            item[0][0],
+            int(item[1].get("created_at") or 0),
+            item[0][1],
+        ),
+    ):
+        lead = snapshot.lead_details.get(lead_id)
+        if lead is None:
+            raise KommoApiError(
+                f"O lead {lead_id} referenciado por um evento de fechamento não foi retornado."
+            )
+        target = event_lead_status(event)
+        if target is None or target[1] not in {WON_STATUS_ID, LOST_STATUS_ID}:
+            continue
+        records.append(
+            {
+                "bucket": bucket,
+                "lead_id": lead_id,
+                "event": event,
+                "lead": lead,
+                "status_id": target[1],
+                "responsavel_nome": lead_custom_responsible_name(
+                    lead, snapshot.responsible_field_id
+                ),
+            }
+        )
+    return records
+
+
+def build_closure_event_rows(
+    snapshot: WeeklySnapshot,
+    week_start: date,
+    extracted_at: datetime,
+) -> list[dict[str, object]]:
+    selected = select_weekly_terminal_events(snapshot.outcome_events, week_start)
+    rows: list[dict[str, object]] = []
+    for event in snapshot.outcome_events:
+        timestamp = event.get("created_at")
+        lead_id = event.get("entity_id")
+        target = event_lead_status(event)
+        if (
+            not isinstance(timestamp, int)
+            or not isinstance(lead_id, int)
+            or target is None
+        ):
+            continue
+        bucket = weekly_bucket(timestamp, week_start)
+        if bucket is None:
+            continue
+        lead = snapshot.lead_details.get(lead_id, {})
+        rows.append(
+            {
+                "periodo": bucket,
+                "lead_id": lead_id,
+                "evento_id": event.get("id", ""),
+                "data_hora_evento": datetime.fromtimestamp(
+                    timestamp, tz=report_timezone()
+                ).isoformat(timespec="seconds"),
+                "status_destino_id": target[1],
+                "status_destino_nome": terminal_status_name(target[1]),
+                "usuario_responsavel": lead_custom_responsible_name(
+                    lead, snapshot.responsible_field_id
+                ),
+                "considerado_no_indicador": (
+                    "sim" if selected.get((bucket, lead_id)) == event else "não"
+                ),
+                "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
+            }
+        )
+    return rows
+
+
 def build_weekly_conversion_rows(
     snapshot: WeeklySnapshot,
     week_start: date,
     extracted_at: datetime,
 ) -> list[dict[str, object]]:
-    won_status_id = 142
     previous_start = week_start - timedelta(days=7)
     previous_end = week_start - timedelta(days=1)
     current_end = week_start + timedelta(days=6)
-    tz = report_timezone()
+    totals: Counter[tuple[str, str]] = Counter()
+    won: Counter[tuple[str, str]] = Counter()
+    for record in weekly_terminal_records(snapshot, week_start):
+        bucket = str(record["bucket"])
+        responsible_name = str(record["responsavel_nome"])
+        totals[(bucket, responsible_name)] += 1
+        if record["status_id"] == WON_STATUS_ID:
+            won[(bucket, responsible_name)] += 1
 
-    previous_totals: Counter[int] = Counter()
-    previous_won: Counter[int] = Counter()
-    current_totals: Counter[int] = Counter()
-    current_won: Counter[int] = Counter()
-
-    for lead in snapshot.leads:
-        created_at = lead.get("created_at")
-        if not isinstance(created_at, int):
-            continue
-        created_date = datetime.fromtimestamp(created_at, tz=tz).date()
-        responsible_value = lead.get("responsible_user_id")
-        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
-        is_won = lead.get("status_id") == won_status_id
-
-        if previous_start <= created_date < week_start:
-            previous_totals[responsible_id] += 1
-            if is_won:
-                previous_won[responsible_id] += 1
-        elif week_start <= created_date <= current_end:
-            current_totals[responsible_id] += 1
-            if is_won:
-                current_won[responsible_id] += 1
-
-    responsible_ids = set(previous_totals) | set(current_totals)
+    responsible_names = {
+        responsible_name for _, responsible_name in totals
+    }
     ordered_responsibles = sorted(
-        responsible_ids,
-        key=lambda responsible_id: (
-            -current_totals[responsible_id],
-            -previous_totals[responsible_id],
-            responsible_id,
+        responsible_names,
+        key=lambda responsible_name: (
+            -totals[("atual", responsible_name)],
+            -totals[("anterior", responsible_name)],
+            responsible_name.casefold(),
         ),
     )
 
     rows: list[dict[str, object]] = []
-    for responsible_id in ordered_responsibles:
-        user = snapshot.users.get(responsible_id)
-        if user is None:
-            responsible_name = (
-                "Sem responsável"
-                if responsible_id == 0
-                else f"Usuário não localizado (ID {responsible_id})"
-            )
-        else:
-            responsible_name = str(user.get("name") or f"Usuário {responsible_id}")
-
-        previous_total = previous_totals[responsible_id]
-        current_total = current_totals[responsible_id]
+    for responsible_name in ordered_responsibles:
+        previous_total = totals[("anterior", responsible_name)]
+        current_total = totals[("atual", responsible_name)]
         previous_rate: float | str = (
-            round(previous_won[responsible_id] / previous_total * 100, 1)
+            round(won[("anterior", responsible_name)] / previous_total * 100, 1)
             if previous_total
             else "N/C"
         )
         current_rate: float | str = (
-            round(current_won[responsible_id] / current_total * 100, 1)
+            round(won[("atual", responsible_name)] / current_total * 100, 1)
             if current_total
             else "N/C"
         )
@@ -1158,24 +1482,25 @@ def build_weekly_conversion_rows(
             {
                 "pipeline_id": snapshot.pipeline.get("id", ""),
                 "pipeline_nome": snapshot.pipeline.get("name", ""),
-                "responsavel_id": responsible_id or "",
+                "responsavel_id": "",
                 "responsavel_nome": responsible_name,
-                "universo": "leads_criados_na_semana",
+                "universo": "leads_com_ultima_transicao_terminal_na_semana",
                 "semana_anterior_inicio": previous_start.isoformat(),
                 "semana_anterior_fim": previous_end.isoformat(),
                 "total_leads_anterior": previous_total,
-                "servicos_iniciados_anterior": previous_won[responsible_id],
+                "servicos_iniciados_anterior": won[("anterior", responsible_name)],
                 "taxa_conversao_anterior": previous_rate,
                 "semana_atual_inicio": week_start.isoformat(),
                 "semana_atual_fim": current_end.isoformat(),
                 "total_leads_atual": current_total,
-                "servicos_iniciados_atual": current_won[responsible_id],
+                "servicos_iniciados_atual": won[("atual", responsible_name)],
                 "taxa_conversao_atual": current_rate,
                 "variacao_pp": variation,
                 "situacao_semana_atual": week_status(week_start, extracted_at.date()),
                 "observacao_maturacao": (
-                    "Taxas baseadas no estado atual dos leads; "
-                    "a semana mais recente pode estar menos amadurecida."
+                    "Cada lead é atribuído à última entrada em Serviço iniciado ou "
+                    "Perdido dentro da semana; o responsável vem exclusivamente do "
+                    f"campo personalizado {RESPONSIBLE_CUSTOM_FIELD_NAME!r}."
                 ),
                 "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
             }
@@ -1206,7 +1531,9 @@ def display_user_name(
 ) -> str:
     user = users.get(responsible_id)
     if user is not None:
-        return str(user.get("name") or f"Usuário {responsible_id}")
+        return compact_responsible_name(
+            user.get("name") or f"Usuário {responsible_id}"
+        )
     if responsible_id == 0:
         return "Sem responsável"
     return f"Usuário não localizado (ID {responsible_id})"
@@ -1226,7 +1553,7 @@ def build_weekly_movement_rows(
     week_start: date,
     extracted_at: datetime,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
-    pairs: dict[str, set[tuple[int, int]]] = {"anterior": set(), "atual": set()}
+    pairs: dict[str, set[tuple[str, int]]] = {"anterior": set(), "atual": set()}
     unique_leads: dict[str, set[int]] = {"anterior": set(), "atual": set()}
     excluded_events = {"anterior": 0, "atual": 0}
     event_types: set[str] = set()
@@ -1234,7 +1561,6 @@ def build_weekly_movement_rows(
     for event in snapshot.events:
         created_at = event.get("created_at")
         entity_id = event.get("entity_id")
-        created_by = event.get("created_by")
         if not isinstance(created_at, int) or not isinstance(entity_id, int):
             continue
         bucket = weekly_bucket(created_at, week_start)
@@ -1243,24 +1569,28 @@ def build_weekly_movement_rows(
         event_type = event.get("type")
         if isinstance(event_type, str):
             event_types.add(event_type)
-        if not isinstance(created_by, int) or created_by not in snapshot.users:
+        lead = snapshot.lead_details.get(entity_id)
+        if lead is None:
             excluded_events[bucket] += 1
             continue
-        pairs[bucket].add((created_by, entity_id))
+        responsible_name = lead_custom_responsible_name(
+            lead, snapshot.responsible_field_id
+        )
+        pairs[bucket].add((responsible_name, entity_id))
         unique_leads[bucket].add(entity_id)
 
-    previous_counts: Counter[int] = Counter(user_id for user_id, _ in pairs["anterior"])
-    current_counts: Counter[int] = Counter(user_id for user_id, _ in pairs["atual"])
+    previous_counts: Counter[str] = Counter(name for name, _ in pairs["anterior"])
+    current_counts: Counter[str] = Counter(name for name, _ in pairs["atual"])
     previous_total = sum(previous_counts.values())
     current_total = sum(current_counts.values())
-    user_ids = set(previous_counts) | set(current_counts)
+    responsible_names = set(previous_counts) | set(current_counts)
     rows: list[dict[str, object]] = []
-    for user_id in sorted(
-        user_ids,
-        key=lambda value: (-current_counts[value], -previous_counts[value], value),
+    for responsible_name in sorted(
+        responsible_names,
+        key=lambda value: (-current_counts[value], -previous_counts[value], value.casefold()),
     ):
-        previous_quantity = previous_counts[user_id]
-        current_quantity = current_counts[user_id]
+        previous_quantity = previous_counts[responsible_name]
+        current_quantity = current_counts[responsible_name]
         previous_share: float | str = (
             round(previous_quantity / previous_total * 100, 1)
             if previous_total
@@ -1278,9 +1608,9 @@ def build_weekly_movement_rows(
         )
         rows.append(
             {
-                "responsavel_id": user_id,
-                "responsavel_nome": display_user_name(snapshot.users, user_id),
-                "unidade_contagem": "par_usuario_lead_distinto",
+                "responsavel_id": "",
+                "responsavel_nome": responsible_name,
+                "unidade_contagem": "par_responsavel_lead_distinto",
                 "atendimentos_semana_anterior": previous_quantity,
                 "atendimentos_semana_atual": current_quantity,
                 "variacao_absoluta": current_quantity - previous_quantity,
@@ -1298,15 +1628,15 @@ def build_weekly_movement_rows(
 
     method_row = {
         "universo": "leads atualmente no funil principal com evento no período",
-        "unidade_contagem": "um lead por usuário por semana, mesmo com vários eventos",
+        "unidade_contagem": "um lead por responsável por semana, mesmo com vários eventos",
         "fonte": "GET /api/v4/events com entity=lead",
-        "atribuicao": "usuário registrado em created_by no evento",
+        "atribuicao": f"campo personalizado do lead {RESPONSIBLE_CUSTOM_FIELD_NAME!r}",
         "eventos_considerados": "|".join(sorted(event_types)),
         "eventos_sem_usuario_excluidos_anterior": excluded_events["anterior"],
         "eventos_sem_usuario_excluidos_atual": excluded_events["atual"],
         "nota_comparabilidade": (
-            "O mesmo lead pode contar para mais de um usuário se ambos o movimentaram; "
-            "eventos de sistema e leads removidos ou fora do funil principal são excluídos."
+            "O usuário que criou ou movimentou o evento não é usado na atribuição; "
+            "leads não retornados pela extração são excluídos."
         ),
         "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
     }
@@ -1318,29 +1648,30 @@ def build_weekly_new_leads_rows(
     week_start: date,
     extracted_at: datetime,
 ) -> list[dict[str, object]]:
-    previous_counts: Counter[int] = Counter()
-    current_counts: Counter[int] = Counter()
-    for lead in snapshot.leads:
+    previous_counts: Counter[str] = Counter()
+    current_counts: Counter[str] = Counter()
+    for lead in snapshot.created_leads:
         created_at = lead.get("created_at")
         if not isinstance(created_at, int):
             continue
         bucket = weekly_bucket(created_at, week_start)
-        responsible_value = lead.get("responsible_user_id")
-        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
+        responsible_name = lead_custom_responsible_name(
+            lead, snapshot.responsible_field_id
+        )
         if bucket == "anterior":
-            previous_counts[responsible_id] += 1
+            previous_counts[responsible_name] += 1
         elif bucket == "atual":
-            current_counts[responsible_id] += 1
+            current_counts[responsible_name] += 1
 
     previous_total = sum(previous_counts.values())
     current_total = sum(current_counts.values())
     rows: list[dict[str, object]] = []
-    for responsible_id in sorted(
+    for responsible_name in sorted(
         set(previous_counts) | set(current_counts),
-        key=lambda value: (-current_counts[value], -previous_counts[value], value),
+        key=lambda value: (-current_counts[value], -previous_counts[value], value.casefold()),
     ):
-        previous_quantity = previous_counts[responsible_id]
-        current_quantity = current_counts[responsible_id]
+        previous_quantity = previous_counts[responsible_name]
+        current_quantity = current_counts[responsible_name]
         previous_share: float | str = (
             round(previous_quantity / previous_total * 100, 1)
             if previous_total
@@ -1355,8 +1686,9 @@ def build_weekly_new_leads_rows(
             {
                 "pipeline_id": snapshot.pipeline.get("id", ""),
                 "pipeline_nome": snapshot.pipeline.get("name", ""),
-                "responsavel_id": responsible_id or "",
-                "responsavel_nome": display_user_name(snapshot.users, responsible_id),
+                "universo": "leads_criados_no_periodo",
+                "responsavel_id": "",
+                "responsavel_nome": responsible_name,
                 "novos_leads_anterior": previous_quantity,
                 "novos_leads_atual": current_quantity,
                 "variacao_absoluta_responsavel": current_quantity - previous_quantity,
@@ -1464,43 +1796,47 @@ def build_consultant_stage_rows(
     week_start: date,
     extracted_at: datetime,
 ) -> list[dict[str, object]]:
-    categories = build_dynamic_stage_categories(
-        snapshot.pipeline, snapshot.loss_reasons, snapshot.leads
-    )
-    counts: Counter[tuple[str, int, int, int | None]] = Counter()
-    totals: Counter[tuple[str, int]] = Counter()
-    for lead in snapshot.leads:
-        created_at = lead.get("created_at")
-        if not isinstance(created_at, int):
-            continue
-        bucket = weekly_bucket(created_at, week_start)
-        if bucket is None:
-            continue
-        responsible_value = lead.get("responsible_user_id")
-        responsible_id = responsible_value if isinstance(responsible_value, int) else 0
-        status_value = lead.get("status_id")
-        status_id = status_value if isinstance(status_value, int) else 0
-        reason_value = lead.get("loss_reason_id")
-        reason_id = reason_value if status_id == 143 and isinstance(reason_value, int) else None
-        counts[(bucket, responsible_id, status_id, reason_id)] += 1
-        totals[(bucket, responsible_id)] += 1
+    categories = [
+        category
+        for category in build_dynamic_stage_categories(
+            snapshot.pipeline, snapshot.loss_reasons, snapshot.leads
+        )
+        if category["status_id"] in {WON_STATUS_ID, LOST_STATUS_ID}
+    ]
+    counts: Counter[tuple[str, str, int, int | None]] = Counter()
+    totals: Counter[tuple[str, str]] = Counter()
+    for record in weekly_terminal_records(snapshot, week_start):
+        bucket = str(record["bucket"])
+        responsible_name = str(record["responsavel_nome"])
+        status_id = int(record["status_id"])
+        lead = record["lead"]
+        reason_value = lead.get("loss_reason_id") if isinstance(lead, dict) else None
+        reason_id = (
+            reason_value
+            if status_id == LOST_STATUS_ID and isinstance(reason_value, int)
+            else None
+        )
+        counts[(bucket, responsible_name, status_id, reason_id)] += 1
+        totals[(bucket, responsible_name)] += 1
 
-    responsible_ids = {
-        responsible_id for _, responsible_id in totals
-    }
+    responsible_names = {responsible_name for _, responsible_name in totals}
     rows: list[dict[str, object]] = []
-    for responsible_id in sorted(
-        responsible_ids,
-        key=lambda value: (-totals[("atual", value)], -totals[("anterior", value)], value),
+    for responsible_name in sorted(
+        responsible_names,
+        key=lambda value: (
+            -totals[("atual", value)],
+            -totals[("anterior", value)],
+            value.casefold(),
+        ),
     ):
-        previous_total = totals[("anterior", responsible_id)]
-        current_total = totals[("atual", responsible_id)]
+        previous_total = totals[("anterior", responsible_name)]
+        current_total = totals[("atual", responsible_name)]
         for category in categories:
             status_id, reason_id = category["key"]
             previous_quantity = counts[
-                ("anterior", responsible_id, status_id, reason_id)
+                ("anterior", responsible_name, status_id, reason_id)
             ]
-            current_quantity = counts[("atual", responsible_id, status_id, reason_id)]
+            current_quantity = counts[("atual", responsible_name, status_id, reason_id)]
             previous_rate: float | str = (
                 round(previous_quantity / previous_total * 100, 1)
                 if previous_total
@@ -1515,10 +1851,9 @@ def build_consultant_stage_rows(
                 {
                     "pipeline_id": snapshot.pipeline.get("id", ""),
                     "pipeline_nome": snapshot.pipeline.get("name", ""),
-                    "responsavel_id": responsible_id or "",
-                    "responsavel_nome": display_user_name(
-                        snapshot.users, responsible_id
-                    ),
+                    "universo": "leads_com_ultima_transicao_terminal_no_periodo",
+                    "responsavel_id": "",
+                    "responsavel_nome": responsible_name,
                     "categoria_relatorio": category["label"],
                     "status_id": status_id or "",
                     "etapa_crm": category["status_name"],
@@ -1555,18 +1890,16 @@ def build_lost_composition_rows(
         for category in build_dynamic_stage_categories(
             snapshot.pipeline, snapshot.loss_reasons, snapshot.leads
         )
-        if category["status_id"] == 143
+        if category["status_id"] == LOST_STATUS_ID
     ]
     counts: Counter[tuple[str, int | None]] = Counter()
     totals: Counter[str] = Counter()
-    for lead in snapshot.leads:
-        if lead.get("status_id") != 143:
+    for record in weekly_terminal_records(snapshot, week_start):
+        if record["status_id"] != LOST_STATUS_ID:
             continue
-        created_at = lead.get("created_at")
-        if not isinstance(created_at, int):
-            continue
-        bucket = weekly_bucket(created_at, week_start)
-        if bucket is None:
+        bucket = str(record["bucket"])
+        lead = record["lead"]
+        if not isinstance(lead, dict):
             continue
         reason_value = lead.get("loss_reason_id")
         reason_id = reason_value if isinstance(reason_value, int) else None
@@ -1592,6 +1925,7 @@ def build_lost_composition_rows(
             {
                 "pipeline_id": snapshot.pipeline.get("id", ""),
                 "pipeline_nome": snapshot.pipeline.get("name", ""),
+                "universo": "leads_com_ultima_transicao_terminal_perdido_no_periodo",
                 "loss_reason_id": reason_id or "",
                 "motivo_perda": category["label"],
                 "quantidade_anterior": previous_quantity,
@@ -1968,7 +2302,7 @@ def build_monthly_week_rows(
     )
     scheduled_ids = scheduled_status_ids(snapshot.pipeline)
     leads_by_date: dict[date, list[dict[str, object]]] = {}
-    for lead in snapshot.leads:
+    for lead in snapshot.created_leads:
         created_at = lead.get("created_at")
         if not isinstance(created_at, int):
             continue
@@ -1995,6 +2329,7 @@ def build_monthly_week_rows(
         provisional.append(
             {
                 "mes_referencia": month_reference,
+                "universo": "leads_criados_no_mes_e_estado_atual",
                 "semana_numero": number,
                 "periodo_inicio": segment_start.isoformat(),
                 "periodo_fim": segment_end.isoformat(),
@@ -2047,9 +2382,9 @@ def build_monthly_summary_rows(
 ) -> list[dict[str, object]]:
     scheduled_ids = scheduled_status_ids(snapshot.pipeline)
     outcomes: Counter[str] = Counter(
-        classify_monthly_outcome(lead, scheduled_ids) for lead in snapshot.leads
+        classify_monthly_outcome(lead, scheduled_ids) for lead in snapshot.created_leads
     )
-    total = len(snapshot.leads)
+    total = len(snapshot.created_leads)
 
     def rate(key: str) -> float | str:
         return round(outcomes[key] / total * 100, 1) if total else "N/C"
@@ -2057,6 +2392,7 @@ def build_monthly_summary_rows(
     return [
         {
             "mes_referencia": month_reference,
+            "universo": "leads_criados_no_mes_e_estado_atual",
             "pipeline_id": snapshot.pipeline.get("id", ""),
             "pipeline_nome": snapshot.pipeline.get("name", ""),
             "novos_leads": total,
@@ -2201,7 +2537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         snapshot, month_reference, args.week_start, generated_at
                     )
                     if sum(int(row["novos_leads"]) for row in month_week_rows) != len(
-                        snapshot.leads
+                        snapshot.created_leads
                     ):
                         raise KommoApiError(
                             "As semanas do mês não fecham com o total mensal."
@@ -2241,6 +2577,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.week_start, CONSULTANT_STAGES_FILENAME
         ),
         "lost": report_output_path(args.week_start, LOST_COMPOSITION_FILENAME),
+        "closure_events": report_output_path(
+            args.week_start, CLOSURE_EVENTS_FILENAME
+        ),
     }
     weekly_selected: dict[str, bool] = {}
     for key, destination in weekly_targets.items():
@@ -2313,6 +2652,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     weekly_targets["lost"], LOST_COMPOSITION_FIELDS, lost_rows
                 )
                 print(f"CSV gerado com sucesso: {weekly_targets['lost']}")
+            if weekly_selected["closure_events"]:
+                closure_rows = build_closure_event_rows(
+                    weekly_snapshot, args.week_start, generated_at
+                )
+                write_csv_rows_atomic(
+                    weekly_targets["closure_events"],
+                    CLOSURE_EVENTS_FIELDS,
+                    closure_rows,
+                )
+                print(
+                    f"CSV gerado com sucesso: {weekly_targets['closure_events']}"
+                )
         except (KommoApiError, OSError, ValueError) as exc:
             print(f"Erro ao gerar os consolidados semanais: {exc}", file=sys.stderr)
             return 1

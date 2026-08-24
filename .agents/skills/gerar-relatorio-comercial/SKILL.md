@@ -17,11 +17,11 @@ Produza um relatório completo para uma semana. Preserve as entradas operacionai
 
 ## Coletar entradas manuais
 
-Leia [references/entradas-manuais.md](references/entradas-manuais.md). Verifique primeiro se a semana já possui um CSV válido de tempo de resposta e exatamente três imagens válidas.
+Leia [references/entradas-manuais.md](references/entradas-manuais.md). Verifique primeiro se a semana já possui um CSV válido de tempo de resposta e exatamente três fontes válidas de atendimento. Cada caso pode ser uma imagem PNG/JPG ou uma transcrição TXT.
 
 Peça em uma única mensagem somente o que estiver ausente. Diga explicitamente que a skill está pausando para aguardar as entradas. Quando o usuário responder, salve os dados nos caminhos semanais e valide novamente antes de consultar a API ou processar o XLSX. Confirme com `git check-ignore` que cada entrada salva está ignorada; se não estiver, pare e corrija o `.gitignore` antes de continuar.
 
-Não sobrescreva uma entrada manual existente com conteúdo diferente sem avisar. Não coloque entradas manuais, outputs, prints ou credenciais no Git.
+Não sobrescreva uma entrada manual existente com conteúdo diferente sem avisar. Não coloque entradas manuais, outputs, imagens, transcrições ou credenciais no Git.
 
 ## Gerar os CSVs
 
@@ -42,7 +42,13 @@ Passe `--pipeline-name` somente quando o usuário indicar um nome diferente. A r
 
 Capture código de saída, `stdout` e `stderr`. Em caso de erro, pare a etapa, leia [references/diagnostico-erros.md](references/diagnostico-erros.md), devolva a mensagem útil e proponha uma correção. Não gere textos com CSVs incompletos.
 
-Depois da geração, compare os responsáveis de `04_conversao_responsavel.csv` com `09_tempo_medio_resposta.csv`. Se algum consultor não tiver uma linha manual comparável, pause e peça a correção; não associe nomes por aproximação.
+Na rota da API, confirme que os indicadores de conversão, etapas e perdas usam eventos `lead_status_changed` cuja etapa de destino é `Serviço iniciado` ou `Perdido`. A data do evento define a semana; se o mesmo lead tiver mais de uma transição terminal na mesma semana, somente a última entra no indicador e todas permanecem auditáveis em `10_eventos_fechamento.csv`. Não use `closed_at` para reconciliar reaberturas.
+
+Para qualquer indicador atribuído a um consultor, use exclusivamente o valor do campo personalizado de lead `Usuário responsável`. Não use `responsible_user_id`, `created_by`, `updated_by`, o autor da mudança de etapa nem o usuário que preencheu a ficha. Valor ausente deve aparecer como `Sem usuário responsável`; campo inexistente, duplicado ou com múltiplos valores deve interromper a execução com diagnóstico.
+
+Na rota XLSX, exija `Lead usuário responsável` e uma única coluna de data de fechamento entre os nomes aceitos pelo importador. Como o XLSX é uma fotografia sem histórico de transições, registre a metodologia como aproximação baseada na data de fechamento e na etapa terminal atual; nunca substitua essa data por `Última modificação`.
+
+Depois da geração, compare os nomes de `04_conversao_responsavel.csv` com `09_tempo_medio_resposta.csv` apenas para detectar rótulos incompatíveis no relatório. Se algum consultor não tiver uma linha manual comparável, pause e peça a correção; não associe nomes por aproximação e não altere a atribuição vinda do campo personalizado.
 
 ## Gerar os textos em contextos limpos
 
@@ -54,7 +60,7 @@ Prepare os atendimentos:
 python processar_atendimentos.py prepare --week-start AAAA-MM-DD
 ```
 
-Use `collaboration.spawn_agent` com `fork_turns="none"` para cada texto. Primeiro crie três agentes isolados, um por print. Depois crie um agente limpo para a consolidação qualitativa. Finalize e valide os hashes:
+Use `collaboration.spawn_agent` com `fork_turns="none"` para cada texto. Primeiro crie três agentes isolados, um por fonte de atendimento. Para PNG/JPG, forneça a imagem; para TXT, forneça somente a transcrição. Depois crie um agente limpo para a consolidação qualitativa. Finalize e valide os hashes:
 
 ```powershell
 python processar_atendimentos.py finalize --week-start AAAA-MM-DD

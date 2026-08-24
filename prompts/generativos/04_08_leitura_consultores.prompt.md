@@ -10,6 +10,8 @@
 
 Leia diretamente os arquivos `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv`, `09_tempo_medio_resposta.csv` e `11_composicao_leads_perdidos.csv` existentes em `PASTA_CSV`.
 
+Não misture os universos: conversão, etapas e perdas usam os leads que chegaram a **Serviço iniciado** ou **Perdido** no período; novos leads usam a **data de criação**; movimentação usa a data de cada evento. Se um lead entrar mais de uma vez em etapas terminais na mesma semana, considere somente a última transição terminal daquela semana. Em todos os indicadores de lead, atribua o consultor exclusivamente pelo campo personalizado **Usuário responsável**, nunca pelo autor do evento.
+
 Produza a seção `## Análise por consultor`, com uma subseção para cada consultor presente nos dados. Para cada pessoa:
 
 - destaque 2 a 4 fatos quantitativos relevantes, comparando semana anterior e atual;

@@ -10,6 +10,8 @@
 
 Leia os CSVs semanais de `PASTA_CSV`, em especial `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv`, `09_tempo_medio_resposta.csv` e `11_composicao_leads_perdidos.csv`.
 
+Respeite os universos informados nos CSVs: conversão, etapas e perdas usam a chegada a **Serviço iniciado** ou **Perdido**; novos leads usam a **criação**; movimentação usa os eventos. Não compare esses volumes como se medissem a mesma população. O consultor dos indicadores de lead vem exclusivamente do campo personalizado **Usuário responsável**.
+
 Produza `## Mudanças significativas entre as duas últimas semanas`.
 
 Selecione somente mudanças materialmente relevantes. Use como critérios a magnitude absoluta, a variação em pontos percentuais, a importância operacional e a utilidade gerencial. Não inclua um indicador apenas porque existe no relatório.

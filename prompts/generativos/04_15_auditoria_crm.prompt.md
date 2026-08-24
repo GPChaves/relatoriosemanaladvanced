@@ -10,6 +10,8 @@
 
 Leia `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `08_etapas_por_consultor.csv` e `11_composicao_leads_perdidos.csv` em `PASTA_CSV`.
 
+Considere que etapas e perdas representam a última chegada de cada lead a **Serviço iniciado** ou **Perdido** no período, enquanto movimentação é apurada pela data dos eventos. Essa diferença de universo não é, sozinha, um problema de qualidade. Confira o arquivo `10_eventos_fechamento.csv` quando precisar auditar eventos repetidos e a transição efetivamente considerada.
+
 Produza `## Auditoria de uso do CRM` somente até o nível sustentado pelos dados agregados.
 
 Procure sinais quantitativos de qualidade de cadastro ou operação, como:
