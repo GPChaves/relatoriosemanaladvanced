@@ -32,7 +32,6 @@ MANUAL_INPUT_ROOT = PROJECT_ROOT / "entradas_manuais"
 MANUAL_RESPONSE_ROOT = MANUAL_INPUT_ROOT / "tempo_resposta"
 MANUAL_ATTENDANCE_ROOT = MANUAL_INPUT_ROOT / "atendimentos"
 REPORT_TIMEZONE_NAME = "America/Sao_Paulo"
-RESPONSIBLE_NAME_SUFFIX = " - Advanced Mecânica Especializada"
 IDENTIFICATION_FILENAME = "01_identificacao_periodo.csv"
 MONTHLY_DISTRIBUTION_FILENAME = "02_distribuicao_mensal_responsavel.csv"
 GLOBAL_STAGES_FILENAME = "03_numeros_globais_etapas.csv"
@@ -249,6 +248,9 @@ WON_STATUS_ID = 142
 LOST_STATUS_ID = 143
 RESPONSIBLE_CUSTOM_FIELD_NAME = "Usuário responsável"
 UNASSIGNED_RESPONSIBLE = "Sem usuário responsável"
+ADMIN_ACCOUNT_NAME = "Advanced Mecânica"
+RESPONSIBLE_SOURCE_CUSTOM_FIELD = "custom-field"
+RESPONSIBLE_SOURCE_NATIVE = "responsible-user-id"
 
 
 class KommoApiError(RuntimeError):
@@ -400,6 +402,7 @@ class MonthlySnapshot:
     outcome_events: list[dict[str, object]] = field(default_factory=list)
     lead_details: dict[int, dict[str, object]] = field(default_factory=dict)
     responsible_field_id: int | None = None
+    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD
 
 
 @dataclass(frozen=True)
@@ -413,6 +416,7 @@ class WeeklySnapshot:
     outcome_events: list[dict[str, object]] = field(default_factory=list)
     lead_details: dict[int, dict[str, object]] = field(default_factory=dict)
     responsible_field_id: int | None = None
+    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
@@ -658,8 +662,33 @@ def select_main_pipeline(client: KommoReadOnlyClient) -> dict[str, object]:
 
 def compact_responsible_name(value: object) -> str:
     name = str(value or "").strip()
-    if name.endswith(RESPONSIBLE_NAME_SUFFIX):
-        return name[: -len(RESPONSIBLE_NAME_SUFFIX)].rstrip()
+    if " - " in name:
+        consultant, suffix = name.split(" - ", 1)
+        if normalized_name_key(suffix).startswith("advanced mecanica"):
+            return consultant.strip()
+    return name
+
+
+def normalized_name_key(value: object) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip())
+    return "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+    ).casefold()
+
+
+def is_administrator_account(value: object) -> bool:
+    return normalized_name_key(value) in {
+        "advanced mecanica",
+        "advanced mecanica especializada",
+    }
+
+
+def normalize_report_responsible_name(value: object) -> str:
+    name = compact_responsible_name(value)
+    if not name or is_administrator_account(name):
+        return UNASSIGNED_RESPONSIBLE
     return name
 
 
@@ -734,8 +763,31 @@ def lead_custom_responsible_name(
                 f"O lead {lead.get('id', 'sem ID')} possui mais de um valor em "
                 f"{RESPONSIBLE_CUSTOM_FIELD_NAME!r}."
             )
-        return populated[0]
+        return normalize_report_responsible_name(populated[0])
     return UNASSIGNED_RESPONSIBLE
+
+
+def lead_responsible_name(
+    lead: Mapping[str, object],
+    users: Mapping[int, Mapping[str, object]],
+    responsible_field_id: int | None,
+    responsible_source: str,
+) -> str:
+    if responsible_source == RESPONSIBLE_SOURCE_NATIVE:
+        responsible_id = lead.get("responsible_user_id")
+        if not isinstance(responsible_id, int):
+            return UNASSIGNED_RESPONSIBLE
+        user = users.get(responsible_id)
+        if not isinstance(user, Mapping):
+            return UNASSIGNED_RESPONSIBLE
+        return normalize_report_responsible_name(user.get("name"))
+    return lead_custom_responsible_name(lead, responsible_field_id)
+
+
+def responsible_attribution_label(responsible_source: str) -> str:
+    if responsible_source == RESPONSIBLE_SOURCE_NATIVE:
+        return "responsável principal registrado no lead"
+    return "responsável registrado na ficha do lead"
 
 
 def fetch_period_leads(
@@ -956,7 +1008,10 @@ def fetch_leads_by_ids(
     return leads
 
 
-def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
+def load_monthly_snapshot(
+    month_reference: str,
+    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+) -> MonthlySnapshot:
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
     account = client.get_json("/api/v4/account")
@@ -970,8 +1025,10 @@ def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
 
     users = fetch_users(client)
     loss_reasons = fetch_loss_reasons(client)
-    responsible_field = fetch_responsible_custom_field(client)
-    responsible_field_id = int(responsible_field["id"])
+    responsible_field_id: int | None = None
+    if responsible_source == RESPONSIBLE_SOURCE_CUSTOM_FIELD:
+        responsible_field = fetch_responsible_custom_field(client)
+        responsible_field_id = int(responsible_field["id"])
     month_start, next_month = month_boundaries(month_reference)
     outcome_events = fetch_terminal_events(
         client, pipeline_id, month_start, next_month, report_timezone()
@@ -1002,10 +1059,14 @@ def load_monthly_snapshot(month_reference: str) -> MonthlySnapshot:
         outcome_events=outcome_events,
         lead_details=lead_details,
         responsible_field_id=responsible_field_id,
+        responsible_source=responsible_source,
     )
 
 
-def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
+def load_weekly_snapshot(
+    week_start: date,
+    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+) -> WeeklySnapshot:
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
     account = client.get_json("/api/v4/account")
@@ -1019,8 +1080,10 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
 
     users = fetch_users(client)
     loss_reasons = fetch_loss_reasons(client)
-    responsible_field = fetch_responsible_custom_field(client)
-    responsible_field_id = int(responsible_field["id"])
+    responsible_field_id: int | None = None
+    if responsible_source == RESPONSIBLE_SOURCE_CUSTOM_FIELD:
+        responsible_field = fetch_responsible_custom_field(client)
+        responsible_field_id = int(responsible_field["id"])
     previous_week_start = week_start - timedelta(days=7)
     current_week_end_exclusive = week_start + timedelta(days=7)
     outcome_events = fetch_terminal_events(
@@ -1086,6 +1149,7 @@ def load_weekly_snapshot(week_start: date) -> WeeklySnapshot:
         outcome_events=outcome_events,
         lead_details=event_leads,
         responsible_field_id=responsible_field_id,
+        responsible_source=responsible_source,
     )
 
 
@@ -1111,8 +1175,11 @@ def monthly_terminal_records(
                 "event": event,
                 "lead": lead,
                 "status_id": target[1],
-                "responsavel_nome": lead_custom_responsible_name(
-                    lead, snapshot.responsible_field_id
+                "responsavel_nome": lead_responsible_name(
+                    lead,
+                    snapshot.users,
+                    snapshot.responsible_field_id,
+                    snapshot.responsible_source,
                 ),
             }
         )
@@ -1378,8 +1445,11 @@ def weekly_terminal_records(
                 "event": event,
                 "lead": lead,
                 "status_id": target[1],
-                "responsavel_nome": lead_custom_responsible_name(
-                    lead, snapshot.responsible_field_id
+                "responsavel_nome": lead_responsible_name(
+                    lead,
+                    snapshot.users,
+                    snapshot.responsible_field_id,
+                    snapshot.responsible_source,
                 ),
             }
         )
@@ -1417,8 +1487,11 @@ def build_closure_event_rows(
                 ).isoformat(timespec="seconds"),
                 "status_destino_id": target[1],
                 "status_destino_nome": terminal_status_name(target[1]),
-                "usuario_responsavel": lead_custom_responsible_name(
-                    lead, snapshot.responsible_field_id
+                "usuario_responsavel": lead_responsible_name(
+                    lead,
+                    snapshot.users,
+                    snapshot.responsible_field_id,
+                    snapshot.responsible_source,
                 ),
                 "considerado_no_indicador": (
                     "sim" if selected.get((bucket, lead_id)) == event else "não"
@@ -1499,8 +1572,8 @@ def build_weekly_conversion_rows(
                 "situacao_semana_atual": week_status(week_start, extracted_at.date()),
                 "observacao_maturacao": (
                     "Cada lead é atribuído à última entrada em Serviço iniciado ou "
-                    "Perdido dentro da semana; o responsável vem exclusivamente do "
-                    f"campo personalizado {RESPONSIBLE_CUSTOM_FIELD_NAME!r}."
+                    "Perdido dentro da semana; o responsável vem de "
+                    f"{responsible_attribution_label(snapshot.responsible_source)}."
                 ),
                 "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
             }
@@ -1573,8 +1646,11 @@ def build_weekly_movement_rows(
         if lead is None:
             excluded_events[bucket] += 1
             continue
-        responsible_name = lead_custom_responsible_name(
-            lead, snapshot.responsible_field_id
+        responsible_name = lead_responsible_name(
+            lead,
+            snapshot.users,
+            snapshot.responsible_field_id,
+            snapshot.responsible_source,
         )
         pairs[bucket].add((responsible_name, entity_id))
         unique_leads[bucket].add(entity_id)
@@ -1629,8 +1705,8 @@ def build_weekly_movement_rows(
     method_row = {
         "universo": "leads atualmente no funil principal com evento no período",
         "unidade_contagem": "um lead por responsável por semana, mesmo com vários eventos",
-        "fonte": "GET /api/v4/events com entity=lead",
-        "atribuicao": f"campo personalizado do lead {RESPONSIBLE_CUSTOM_FIELD_NAME!r}",
+        "fonte": "registros de movimentação do CRM",
+        "atribuicao": responsible_attribution_label(snapshot.responsible_source),
         "eventos_considerados": "|".join(sorted(event_types)),
         "eventos_sem_usuario_excluidos_anterior": excluded_events["anterior"],
         "eventos_sem_usuario_excluidos_atual": excluded_events["atual"],
@@ -1655,8 +1731,11 @@ def build_weekly_new_leads_rows(
         if not isinstance(created_at, int):
             continue
         bucket = weekly_bucket(created_at, week_start)
-        responsible_name = lead_custom_responsible_name(
-            lead, snapshot.responsible_field_id
+        responsible_name = lead_responsible_name(
+            lead,
+            snapshot.users,
+            snapshot.responsible_field_id,
+            snapshot.responsible_source,
         )
         if bucket == "anterior":
             previous_counts[responsible_name] += 1
@@ -1952,8 +2031,8 @@ def build_response_time_rows(
     extracted_at: datetime,
 ) -> list[dict[str, object]]:
     definition = (
-        "Minutos entre a primeira mensagem recebida e a primeira resposta "
-        "de um usuário interno na conversa."
+        "Tempo médio entre a primeira mensagem recebida e a primeira resposta, "
+        "considerando todas as conversas do período."
     )
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
@@ -2053,9 +2132,7 @@ def build_response_time_rows(
         return [
             {
                 "status_dado": "indisponivel",
-                "motivo_indisponibilidade": (
-                    "A integração não possui o escopo External chat history."
-                ),
+                "motivo_indisponibilidade": "Tempo de resposta não disponível para este período.",
                 "responsavel_id": "",
                 "responsavel_nome": "",
                 "conversas_anterior": "N/C",
@@ -2071,7 +2148,11 @@ def build_response_time_rows(
             }
         ]
 
-    user_ids = set(response_minutes["anterior"]) | set(response_minutes["atual"])
+    user_ids = {
+        user_id
+        for user_id in set(response_minutes["anterior"]) | set(response_minutes["atual"])
+        if not is_administrator_account(display_user_name(users, user_id))
+    }
     if not user_ids:
         return [
             {
@@ -2151,15 +2232,6 @@ def _manual_number(value: object, *, field: str, allow_na: bool = True) -> float
     return round(number, 1)
 
 
-def _manual_integer(value: object, *, field: str) -> int | str:
-    number = _manual_number(value, field=field)
-    if number == "N/C":
-        return number
-    if not float(number).is_integer():
-        raise ValueError(f"{field} deve ser um número inteiro.")
-    return int(number)
-
-
 def build_manual_response_time_rows(
     source_path: Path,
     week_start: date,
@@ -2176,9 +2248,7 @@ def build_manual_response_time_rows(
     reader = csv.DictReader(text.splitlines(), delimiter=delimiter)
     required = {
         "responsavel_nome",
-        "conversas_anterior",
         "tempo_medio_minutos_anterior",
-        "conversas_atual",
         "tempo_medio_minutos_atual",
     }
     missing = required - set(reader.fieldnames or [])
@@ -2188,15 +2258,20 @@ def build_manual_response_time_rows(
         )
 
     definition = (
-        "Minutos entre a primeira mensagem recebida e a primeira resposta "
-        "de um usuário interno na conversa. Fonte informada manualmente."
+        "Tempo médio entre a primeira mensagem recebida e a primeira resposta, "
+        "considerando todas as conversas do período."
     )
     seen: set[str] = set()
     rows: list[dict[str, object]] = []
     for line_number, source in enumerate(reader, 2):
-        responsible = str(source.get("responsavel_nome") or "").strip()
-        if not responsible:
+        supplied_responsible = str(source.get("responsavel_nome") or "").strip()
+        if not supplied_responsible:
             raise ValueError(f"Responsável vazio na linha {line_number}.")
+        if is_administrator_account(supplied_responsible):
+            raise ValueError(
+                f"{ADMIN_ACCOUNT_NAME} é uma conta administradora, não um consultor."
+            )
+        responsible = normalize_report_responsible_name(supplied_responsible)
         key = responsible.casefold()
         if key in seen:
             raise ValueError(f"Responsável duplicado no arquivo manual: {responsible}.")
@@ -2218,19 +2293,13 @@ def build_manual_response_time_rows(
             variation = round(current_minutes - previous_minutes, 1)
         rows.append(
             {
-                "status_dado": "disponivel_manual",
+                "status_dado": "disponivel",
                 "motivo_indisponibilidade": "",
                 "responsavel_id": "",
                 "responsavel_nome": responsible,
-                "conversas_anterior": _manual_integer(
-                    source.get("conversas_anterior"),
-                    field=f"conversas_anterior (linha {line_number})",
-                ),
+                "conversas_anterior": "",
                 "tempo_medio_minutos_anterior": previous_minutes,
-                "conversas_atual": _manual_integer(
-                    source.get("conversas_atual"),
-                    field=f"conversas_atual (linha {line_number})",
-                ),
+                "conversas_atual": "",
                 "tempo_medio_minutos_atual": current_minutes,
                 "variacao_minutos": variation,
                 "definicao": definition,
@@ -2420,6 +2489,15 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="AAAA-MM-DD",
         help="primeiro dia da semana analisada",
     )
+    parser.add_argument(
+        "--responsible-source",
+        choices=(RESPONSIBLE_SOURCE_CUSTOM_FIELD, RESPONSIBLE_SOURCE_NATIVE),
+        default=RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+        help=(
+            "fonte de atribuição dos leads; o padrão exige o campo personalizado, "
+            "e responsible-user-id usa o responsável nativo mediante autorização explícita"
+        ),
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--force",
@@ -2509,7 +2587,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"para o mês {month_reference}..."
             )
             try:
-                snapshot = load_monthly_snapshot(month_reference)
+                snapshot = load_monthly_snapshot(
+                    month_reference, args.responsible_source
+                )
                 if monthly_selected["distribution"]:
                     lead_count = generate_monthly_distribution(
                         monthly_targets["distribution"],
@@ -2590,7 +2670,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if any(weekly_selected.values()):
         print("Consultando a Kommo em modo somente leitura para as duas semanas...")
         try:
-            weekly_snapshot = load_weekly_snapshot(args.week_start)
+            weekly_snapshot = load_weekly_snapshot(
+                args.week_start, args.responsible_source
+            )
             if weekly_selected["conversion"]:
                 previous_total, current_total = generate_weekly_conversion(
                     weekly_targets["conversion"],

@@ -25,6 +25,8 @@ Na rota da API, o fechamento é datado pelo evento de mudança de etapa. Se o me
 
 Em todos os indicadores de lead, a atribuição ao consultor deve usar exclusivamente o campo personalizado **Usuário responsável** extraído da ficha do lead. O responsável padrão da Kommo, o autor do evento, quem mudou a etapa e quem preencheu a ficha não podem ser usados como substitutos. Valor vazio deve ser exibido como **Sem usuário responsável**.
 
+Os nomes `Milena - Advanced Mecânica...` e `Vitor - Advanced Mecânica...`, inclusive sem acento, representam respectivamente **Milena** e **Vitor** e devem ser exibidos somente assim. **Advanced Mecânica** é uma conta administradora, não um consultor; leads atribuídos a ela entram em **Sem usuário responsável** e não geram uma análise individual de consultor.
+
 ### 2.2. Separar fato, interpretação e recomendação
 
 Cada conclusão deve deixar claro se é:
@@ -68,6 +70,10 @@ O padrão mínimo das tabelas comparativas de taxas é:
 ### 2.5. Exibir somente conteúdo material
 
 Seções analíticas devem priorizar mudanças que tenham relevância operacional, comercial ou gerencial. Não é necessário repetir números estáveis ou produzir recomendações quando os dados não sustentam uma conclusão útil.
+
+### 2.6. Preservar a voz autoral
+
+O relatório final deve soar como uma análise escrita pessoalmente pelo gestor. Não pode mencionar coleta manual, automação, inteligência artificial, agentes, prompts, scripts, APIs, CSVs, arquivos internos ou qualquer bastidor de produção. Essas informações podem existir na documentação operacional, mas não no conteúdo entregue.
 
 ## 3. Ordem recomendada do relatório
 
@@ -244,7 +250,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Exibição:** quando o dado estiver disponível e for comparável.
 
-**Conteúdo:** tempo médio de primeira resposta ou da métrica de resposta adotada para cada consultor, acompanhado das colunas **Semana anterior**, **Semana atual** e **Variação**.
+**Conteúdo:** tempo médio de primeira resposta de cada consultor, considerando todas as conversas ocorridas no período e acompanhado das colunas **Semana anterior**, **Semana atual** e **Variação**. A quantidade de conversas não precisa ser informada nem exibida.
 
 **Objetivo:** acompanhar a agilidade do atendimento e investigar sua possível relação com abandono, engajamento e conversão.
 

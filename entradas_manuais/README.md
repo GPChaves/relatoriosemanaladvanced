@@ -8,9 +8,9 @@ Copie o modelo para:
 
 `entradas_manuais/tempo_resposta/AAAA-MM-DD/tempo_resposta.csv`
 
-O CSV aceita `;` ou `,` como separador. Use `N/C` quando uma das semanas não tiver medição. O arquivo manual tem prioridade sobre a tentativa de leitura das conversas pela Kommo e nunca é alterado pelo script.
+O CSV aceita `;` ou `,` como separador. Use `N/C` quando uma das semanas não tiver medição. Informe somente o tempo médio de cada semana; o indicador deve considerar todas as conversas ocorridas no respectivo período.
 
-Substitua os valores do modelo antes de rodar: cada responsável precisa ter pelo menos um tempo médio medido. Quantidades e tempos não podem ser negativos, e o mesmo responsável não pode aparecer duas vezes.
+Substitua os valores do modelo antes de rodar: cada responsável precisa ter pelo menos um tempo médio medido. Tempos não podem ser negativos, e o mesmo responsável não pode aparecer duas vezes. Não informe quantidade de conversas.
 
 ## Amostras de atendimento
 

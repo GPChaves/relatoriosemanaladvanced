@@ -4,23 +4,21 @@ Use esta referência quando a semana ainda não tiver todas as entradas manuais.
 
 ## Tempo de primeira resposta
 
-Peça uma linha por consultor com estes cinco campos:
+Peça uma linha por consultor com estes três campos:
 
 1. responsável;
-2. conversas medidas na semana anterior;
-3. tempo médio, em minutos, na semana anterior;
-4. conversas medidas na semana atual;
-5. tempo médio, em minutos, na semana atual.
+2. tempo médio, em minutos, na semana anterior;
+3. tempo médio, em minutos, na semana atual.
 
-Oriente o usuário a obter os números no relatório do canal de atendimento usado pela oficina, medindo o intervalo entre a primeira mensagem recebida do cliente e a primeira resposta humana. As duas semanas precisam usar a mesma definição. Aceite `N/C` para um período sem medição, mas cada responsável precisa ter pelo menos um tempo informado.
+Oriente o usuário a obter os números no relatório do canal de atendimento usado pela oficina. O indicador deve abranger todas as conversas ocorridas em cada período e medir o intervalo entre a primeira mensagem recebida do cliente e a primeira resposta humana. As duas semanas precisam usar a mesma definição. Aceite `N/C` para um período sem medição, mas cada responsável precisa ter pelo menos um tempo informado. Não peça a quantidade de conversas: a abrangência é sempre a totalidade do período.
 
 Grave em `entradas_manuais/tempo_resposta/AAAA-MM-DD/tempo_resposta.csv`, separado por ponto e vírgula, com o cabeçalho:
 
 ```text
-responsavel_nome;conversas_anterior;tempo_medio_minutos_anterior;conversas_atual;tempo_medio_minutos_atual
+responsavel_nome;tempo_medio_minutos_anterior;tempo_medio_minutos_atual
 ```
 
-Não invente quantidades ausentes e não converta `N/C` para zero. Rejeite valores negativos, responsáveis duplicados e linhas sem nenhum tempo medido. Aceite vírgula ou ponto como separador decimal, conforme o validador do projeto.
+Não converta `N/C` para zero. Rejeite valores negativos, responsáveis duplicados e linhas sem nenhum tempo medido. Aceite vírgula ou ponto como separador decimal, conforme o validador do projeto. Normalize os nomes de Milena e Vitor removendo qualquer sufixo iniciado por `Advanced Mecânica` ou `Advanced Mecanica`. Não aceite `Advanced Mecânica` como responsável, pois é a conta administradora.
 
 ## Três fontes de atendimento
 

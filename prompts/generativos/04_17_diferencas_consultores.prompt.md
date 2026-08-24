@@ -10,6 +10,8 @@
 
 Leia `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv` e `09_tempo_medio_resposta.csv` em `PASTA_CSV`.
 
+Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
+
 Use cada base com seu significado: conversão e etapas representam leads que chegaram a **Serviço iniciado** ou **Perdido** no período; novos leads representam criações; movimentação representa eventos. Não some nem confronte diretamente esses volumes como se fossem o mesmo universo. Para atribuição entre consultores, considere exclusivamente o campo personalizado **Usuário responsável**.
 
 Produza `## Diferenças observadas entre os consultores`.

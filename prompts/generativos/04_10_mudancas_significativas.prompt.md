@@ -10,6 +10,8 @@
 
 Leia os CSVs semanais de `PASTA_CSV`, em especial `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv`, `09_tempo_medio_resposta.csv` e `11_composicao_leads_perdidos.csv`.
 
+Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
+
 Respeite os universos informados nos CSVs: conversão, etapas e perdas usam a chegada a **Serviço iniciado** ou **Perdido**; novos leads usam a **criação**; movimentação usa os eventos. Não compare esses volumes como se medissem a mesma população. O consultor dos indicadores de lead vem exclusivamente do campo personalizado **Usuário responsável**.
 
 Produza `## Mudanças significativas entre as duas últimas semanas`.

@@ -44,7 +44,7 @@ Capture código de saída, `stdout` e `stderr`. Em caso de erro, pare a etapa, l
 
 Na rota da API, confirme que os indicadores de conversão, etapas e perdas usam eventos `lead_status_changed` cuja etapa de destino é `Serviço iniciado` ou `Perdido`. A data do evento define a semana; se o mesmo lead tiver mais de uma transição terminal na mesma semana, somente a última entra no indicador e todas permanecem auditáveis em `10_eventos_fechamento.csv`. Não use `closed_at` para reconciliar reaberturas.
 
-Para qualquer indicador atribuído a um consultor, use exclusivamente o valor do campo personalizado de lead `Usuário responsável`. Não use `responsible_user_id`, `created_by`, `updated_by`, o autor da mudança de etapa nem o usuário que preencheu a ficha. Valor ausente deve aparecer como `Sem usuário responsável`; campo inexistente, duplicado ou com múltiplos valores deve interromper a execução com diagnóstico.
+Para qualquer indicador atribuído a um consultor, use exclusivamente o valor do campo personalizado de lead `Usuário responsável`. Não use `responsible_user_id`, `created_by`, `updated_by`, o autor da mudança de etapa nem o usuário que preencheu a ficha. Remova de Milena e Vitor qualquer sufixo iniciado por `Advanced Mecânica` ou `Advanced Mecanica`, deixando apenas `Milena` e `Vitor`. Trate `Advanced Mecânica` como conta administradora, nunca como consultor; seus leads ficam em `Sem usuário responsável`. Valor ausente também deve aparecer como `Sem usuário responsável`; campo inexistente, duplicado ou com múltiplos valores deve interromper a execução com diagnóstico.
 
 Na rota XLSX, exija `Lead usuário responsável` e uma única coluna de data de fechamento entre os nomes aceitos pelo importador. Como o XLSX é uma fotografia sem histórico de transições, registre a metodologia como aproximação baseada na data de fechamento e na etapa terminal atual; nunca substitua essa data por `Última modificação`.
 
@@ -70,6 +70,8 @@ python processar_atendimentos.py validate --week-start AAAA-MM-DD
 Em seguida, crie um agente limpo para cada item semanal do manifesto. Crie o agente mensal somente quando os CSVs mensais tiverem sido gerados. Nunca escreva um texto generativo no agente principal e nunca forneça a um agente fontes que não estejam declaradas para a seção.
 
 Espere todos os agentes, confira que cada saída é UTF-8, não vazia e começa com `## `. Repita uma falha no máximo uma vez em outro contexto limpo.
+
+Todo texto entregue deve soar como análise autoral do gestor. Não permita menções a arquivos internos, CSV, Markdown, coleta manual, agentes, inteligência artificial, automação, scripts ou APIs. Antes de gerar o PDF, execute o validador e corrija qualquer saída que exponha esses bastidores; não apenas remova a frase isolada se isso prejudicar o sentido.
 
 ## Gerar e entregar o PDF
 

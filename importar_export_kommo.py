@@ -25,6 +25,7 @@ from relatorio import (
     build_manual_response_time_rows,
     closing_month,
     manual_response_time_path,
+    normalize_report_responsible_name,
     parse_week_start,
     report_timezone,
     write_csv_rows_atomic,
@@ -53,9 +54,9 @@ def pp(current: float, previous: float) -> float:
 
 def normalized_responsible(value: object) -> str:
     text = str(value or "").strip()
-    if not text or text.casefold() == "nan":
-        return UNASSIGNED_RESPONSIBLE
-    return text
+    if text.casefold() == "nan":
+        text = ""
+    return normalize_report_responsible_name(text)
 
 
 def resolve_close_date_column(columns: Sequence[object]) -> str:
@@ -373,8 +374,8 @@ def _build_artifacts(
                 "variacao_pp": pp(current_rate, previous_rate),
                 "situacao_semana_atual": "completa",
                 "observacao_maturacao": (
-                    "A rota XLSX usa a data de fechamento e a etapa terminal atual; "
-                    "o responsável vem exclusivamente de 'Lead usuário responsável'."
+                    "A classificação considera a data de fechamento e a etapa "
+                    "terminal atual; a atribuição considera o responsável registrado no lead."
                 ),
                 "data_hora_extracao": stamp,
             }
@@ -474,7 +475,7 @@ def _build_artifacts(
         {
             "status_dado": "indisponivel",
             "motivo_indisponibilidade": (
-                "O arquivo não guarda o histórico completo de movimentações."
+                "Não há histórico completo de movimentações para este período."
             ),
             "situacao_semana_atual": "completa",
             "data_hora_extracao": stamp,
@@ -488,7 +489,7 @@ def _build_artifacts(
             "universo": "não disponível",
             "unidade_contagem": "não disponível",
             "nota_comparabilidade": (
-                "A fotografia exportada não permite reconstruir o histórico de movimentações."
+                "O histórico disponível não permite reconstruir todas as movimentações."
             ),
             "data_hora_extracao": stamp,
         }

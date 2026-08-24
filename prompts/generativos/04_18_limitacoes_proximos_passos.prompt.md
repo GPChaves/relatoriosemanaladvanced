@@ -10,6 +10,8 @@
 
 Leia todos os CSVs de `PASTA_CSV` e produza `## Limitações e próximos passos`.
 
+Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
+
 Identifique somente limitações que realmente se aplicam, incluindo quando pertinente:
 
 - maturação incompleta dos leads mais recentes;

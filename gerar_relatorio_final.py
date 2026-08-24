@@ -13,7 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from relatorio import applicable_month
+from relatorio import UNASSIGNED_RESPONSIBLE, applicable_month
 from processar_atendimentos import (
     DEFAULT_INPUT_ROOT as DEFAULT_ATTENDANCE_INPUT_ROOT,
     ManualAttendanceError,
@@ -76,7 +76,6 @@ WEEKLY_MARKDOWN_FILES = (
     "04_15_auditoria_crm.md",
     "04_16_amostragem_qualitativa.md",
     "04_17_diferencas_consultores.md",
-    "04_18_limitacoes_proximos_passos.md",
 )
 MONTHLY_MARKDOWN_FILES = ("04_13_leitura_gerencial_mes.md",)
 MANAGEMENT_NARRATIVES = (
@@ -86,7 +85,27 @@ MANAGEMENT_NARRATIVES = (
     ("8.", "Diferenças entre consultores", "04_17_diferencas_consultores.md"),
     ("9.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
     ("10.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
-    ("11.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
+)
+DELIVERY_PROVENANCE_MARKERS = (
+    "informado manualmente",
+    "manualmente",
+    "fonte manual",
+    "entrada manual",
+    "automação",
+    "automatizado",
+    "inteligência artificial",
+    "ia generativa",
+    "subagente",
+    "agente de ia",
+    "gerado por ia",
+    "prompt",
+    "via api",
+    "api da kommo",
+    "xlsx",
+    "arquivo interno",
+    ".csv",
+    ".md",
+    "script python",
 )
 
 NAVY = colors.HexColor("#102A43")
@@ -175,6 +194,17 @@ def validate_outputs(output_root: Path, week_start: date) -> ValidationResult:
                 continue
             if not content.startswith("## "):
                 invalid.append(f"Markdown sem título de seção: {path}")
+            content_key = content.casefold()
+            exposed_markers = [
+                marker
+                for marker in DELIVERY_PROVENANCE_MARKERS
+                if marker in content_key
+            ]
+            if exposed_markers:
+                invalid.append(
+                    "Texto expõe detalhes internos de produção em "
+                    f"{path}: {', '.join(exposed_markers)}"
+                )
 
     identification = week_dir / "01_identificacao_periodo.csv"
     if identification.is_file():
@@ -754,7 +784,11 @@ def add_consultant_comparison(
     leads = read_csv(week_dir / "07_novos_leads_semana.csv")
     movement = read_csv(week_dir / "05_movimentacao_semanal.csv")
     stages = read_csv(week_dir / "08_etapas_por_consultor.csv")
-    consultants = [row.get("responsavel_nome", "Não identificado") for row in conversion]
+    consultants = [
+        row.get("responsavel_nome", "Não identificado")
+        for row in conversion
+        if row.get("responsavel_nome") != UNASSIGNED_RESPONSIBLE
+    ]
     leads_by_name = {row.get("responsavel_nome", ""): row for row in leads}
     conversion_by_name = {row.get("responsavel_nome", ""): row for row in conversion}
     movement_by_name = {row.get("responsavel_nome", ""): row for row in movement}
@@ -1043,14 +1077,10 @@ def add_management_narratives(
     story: list[Flowable], week_dir: Path, styles: dict[str, ParagraphStyle]
 ) -> None:
     for number, title, filename in MANAGEMENT_NARRATIVES:
-        # A seção final precisa de uma página quase inteira; as demais só não
-        # devem começar quando restar pouco espaço.
-        minimum_space = 180 * mm if filename == "04_18_limitacoes_proximos_passos.md" else 70 * mm
-        story.append(CondPageBreak(minimum_space))
+        story.append(CondPageBreak(70 * mm))
         add_section_title(story, styles, f"{number} {title}")
         story.extend(markdown_flowables(load_markdown(week_dir, filename), styles))
-        if filename != "04_18_limitacoes_proximos_passos.md":
-            add_source(story, styles, filename)
+        add_source(story, styles, filename)
 
 
 def draw_cover(canvas, doc, identification: dict[str, str]) -> None:

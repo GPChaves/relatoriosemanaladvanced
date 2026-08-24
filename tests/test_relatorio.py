@@ -152,6 +152,19 @@ class CommandLineTests(unittest.TestCase):
         self.assertTrue(validate.validate_only)
         self.assertFalse(validate.force)
 
+    def test_parser_accepts_explicit_native_responsible_source(self) -> None:
+        args = relatorio.build_parser().parse_args(
+            [
+                "--week-start",
+                "2026-08-17",
+                "--responsible-source",
+                "responsible-user-id",
+                "--force",
+            ]
+        )
+
+        self.assertEqual(args.responsible_source, "responsible-user-id")
+
     def test_validate_only_does_not_query_or_write(self) -> None:
         config = relatorio.KommoConfig(
             base_url="https://example.kommo.com", token="token"
@@ -255,6 +268,20 @@ class MonthlyDistributionTests(unittest.TestCase):
                 lead, RESPONSIBLE_FIELD_ID
             )
 
+    def test_native_responsible_source_uses_responsible_user_id(self) -> None:
+        lead = {"id": 123, "responsible_user_id": 7}
+        users = {7: {"name": "Milena - Advanced Mecânica Especializada"}}
+
+        self.assertEqual(
+            relatorio.lead_responsible_name(
+                lead,
+                users,
+                responsible_field_id=None,
+                responsible_source=relatorio.RESPONSIBLE_SOURCE_NATIVE,
+            ),
+            "Milena",
+        )
+
     def test_distribution_uses_only_custom_responsible_field(self) -> None:
         leads = {
             1: lead_with_custom_responsible(1, "Ana"),
@@ -297,6 +324,16 @@ class MonthlyDistributionTests(unittest.TestCase):
             "Milena",
         )
         self.assertEqual(relatorio.compact_responsible_name("Advanced Mecânica"), "Advanced Mecânica")
+        self.assertEqual(
+            relatorio.compact_responsible_name(
+                "Vitor - Advanced Mecanica Especializada..."
+            ),
+            "Vitor",
+        )
+        self.assertEqual(
+            relatorio.normalize_report_responsible_name("Advanced Mecanica"),
+            relatorio.UNASSIGNED_RESPONSIBLE,
+        )
 
     def test_missing_custom_responsible_is_explicit(self) -> None:
         lead = lead_with_custom_responsible(1, None)

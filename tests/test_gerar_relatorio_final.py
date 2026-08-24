@@ -12,6 +12,7 @@ class FinalReportValidationTests(unittest.TestCase):
         paths = final.expected_output_paths(Path("outputs"), date(2026, 8, 17))
         names = {path.name for path in paths}
         self.assertIn("04_12_leitura_gerencial_semana.md", names)
+        self.assertNotIn("04_18_limitacoes_proximos_passos.md", names)
         self.assertNotIn("13_analise_quantitativa_mes.csv", names)
         self.assertNotIn("04_13_leitura_gerencial_mes.md", names)
 
@@ -33,12 +34,44 @@ class FinalReportValidationTests(unittest.TestCase):
     def test_every_required_weekly_narrative_is_rendered(self) -> None:
         rendered = {filename for _, _, filename in final.MANAGEMENT_NARRATIVES}
         self.assertEqual(rendered, set(final.WEEKLY_MARKDOWN_FILES))
+        self.assertNotIn(
+            ("11.", "Próximos pontos de acompanhamento", "04_18_limitacoes_proximos_passos.md"),
+            final.MANAGEMENT_NARRATIVES,
+        )
 
     def test_validation_lists_every_missing_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = final.validate_outputs(Path(directory), date(2026, 8, 17))
         self.assertFalse(result.ok)
         self.assertEqual(len(result.missing), len(final.WEEKLY_CSV_FILES) + len(final.WEEKLY_MARKDOWN_FILES))
+
+    def test_validation_rejects_internal_production_provenance(self) -> None:
+        week_start = date(2026, 8, 17)
+        with tempfile.TemporaryDirectory() as directory:
+            output_root = Path(directory)
+            paths = final.expected_output_paths(output_root, week_start)
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".csv":
+                    path.write_text("campo\nvalor\n", encoding="utf-8")
+                else:
+                    path.write_text("## Seção\n\nAnálise objetiva.", encoding="utf-8")
+            identification = final.week_output_dir(output_root, week_start) / "01_identificacao_periodo.csv"
+            identification.write_text(
+                "data_inicial,data_final\n2026-08-17,2026-08-23\n",
+                encoding="utf-8",
+            )
+            bad = final.week_output_dir(output_root, week_start) / "generativos" / final.WEEKLY_MARKDOWN_FILES[0]
+            bad.write_text(
+                "## Seção\n\nEste dado foi informado manualmente.",
+                encoding="utf-8",
+            )
+
+            result = final.validate_outputs(output_root, week_start)
+
+        self.assertTrue(
+            any("detalhes internos de produção" in problem for problem in result.invalid)
+        )
 
     def test_existing_pdf_requires_explicit_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

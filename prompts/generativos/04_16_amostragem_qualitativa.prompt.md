@@ -16,6 +16,8 @@ Antes de qualquer outra ação, procure estas três análises individuais:
 
 Se as três existirem, elas já foram produzidas por agentes independentes, um por fonte de atendimento. Nesse caso, não volte a analisar os atendimentos e não acrescente interpretações. Apenas reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`, mantendo os blocos `### Atendimento 1`, `### Atendimento 2` e `### Atendimento 3`. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
 
+O texto consolidado deve soar como avaliação autoral do gestor. Não mencione prompts, agentes, inteligência artificial, automação, scripts, APIs, arquivos internos nem a forma usada para preparar as análises.
+
 Se apenas uma ou duas análises individuais existirem, não produza uma consolidação parcial. Informe que faltam análises e preserve os arquivos individuais existentes.
 
 Use as regras abaixo somente quando a pasta de análises individuais não existir, para manter compatibilidade com semanas antigas.

@@ -11,6 +11,7 @@ Crie cada agente com `fork_turns="none"`. O envelope deve conter somente:
 - os caminhos absolutos das fontes declaradas no manifesto;
 - o caminho absoluto e exclusivo da saída;
 - a instrução de não ler outras semanas nem outras fontes.
+- a instrução de escrever como análise autoral do gestor, sem expor arquivos internos, coleta manual, agentes, IA, automação, scripts ou APIs.
 
 Agentes não devem compartilhar uma saída. Execute em ondas compatíveis com os slots disponíveis e espere a conclusão de toda onda antes de validar seus arquivos.
 
@@ -37,6 +38,7 @@ Escreva apenas ARQUIVO_SAIDA.
 Leia integralmente PROMPT e somente as FONTES listadas.
 PASTA_CSV é a pasta semanal informada abaixo.
 Não use fatos da conversa, de outras semanas ou conhecimento externo.
+Não mencione arquivos internos, coleta manual, agentes, IA, automação, scripts ou APIs no texto entregue.
 Substitua a saída existente e não crie arquivos alternativos.
 Ao terminar, confirme o caminho gravado e uma validação curta; não cole o texto inteiro na resposta.
 ```

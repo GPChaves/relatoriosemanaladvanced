@@ -10,6 +10,8 @@
 
 Leia `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `08_etapas_por_consultor.csv` e `11_composicao_leads_perdidos.csv` em `PASTA_CSV`.
 
+Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
+
 Considere que etapas e perdas representam a última chegada de cada lead a **Serviço iniciado** ou **Perdido** no período, enquanto movimentação é apurada pela data dos eventos. Essa diferença de universo não é, sozinha, um problema de qualidade. Confira o arquivo `10_eventos_fechamento.csv` quando precisar auditar eventos repetidos e a transição efetivamente considerada.
 
 Produza `## Auditoria de uso do CRM` somente até o nível sustentado pelos dados agregados.

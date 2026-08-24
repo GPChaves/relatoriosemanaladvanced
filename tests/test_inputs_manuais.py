@@ -19,9 +19,9 @@ class ManualResponseTimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tempo_resposta.csv"
             path.write_text(
-                "responsavel_nome;conversas_anterior;tempo_medio_minutos_anterior;"
-                "conversas_atual;tempo_medio_minutos_atual\n"
-                "Milena;12;7,5;10;5,0\n",
+                "responsavel_nome;tempo_medio_minutos_anterior;"
+                "tempo_medio_minutos_atual\n"
+                "Milena - Advanced Mecanica Especializada;7,5;5,0\n",
                 encoding="utf-8",
             )
             rows = relatorio.build_manual_response_time_rows(
@@ -29,18 +29,21 @@ class ManualResponseTimeTests(unittest.TestCase):
                 date(2026, 8, 17),
                 datetime(2026, 8, 24, tzinfo=timezone.utc),
             )
-        self.assertEqual(rows[0]["status_dado"], "disponivel_manual")
+        self.assertEqual(rows[0]["status_dado"], "disponivel")
         self.assertEqual(rows[0]["tempo_medio_minutos_anterior"], 7.5)
         self.assertEqual(rows[0]["tempo_medio_minutos_atual"], 5.0)
         self.assertEqual(rows[0]["variacao_minutos"], -2.5)
+        self.assertEqual(rows[0]["responsavel_nome"], "Milena")
+        self.assertEqual(rows[0]["conversas_anterior"], "")
+        self.assertNotIn("manual", rows[0]["definicao"].casefold())
 
     def test_duplicate_responsible_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tempo_resposta.csv"
             path.write_text(
-                "responsavel_nome;conversas_anterior;tempo_medio_minutos_anterior;"
-                "conversas_atual;tempo_medio_minutos_atual\n"
-                "Vitor;2;10;2;8\nVitor;1;9;1;7\n",
+                "responsavel_nome;tempo_medio_minutos_anterior;"
+                "tempo_medio_minutos_atual\n"
+                "Vitor;10;8\nVitor - Advanced Mecânica Especializada;9;7\n",
                 encoding="utf-8",
             )
             with self.assertRaises(ValueError):
@@ -167,6 +170,21 @@ class AttendanceInputTests(unittest.TestCase):
                     date(2026, 8, 17), input_root=input_root, output_root=output_root
                 )
             self.assertFalse((preparation.analysis_dir / attendance.MANIFEST_NAME).exists())
+
+    def test_administrator_account_is_not_accepted_as_consultant(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tempo_resposta.csv"
+            path.write_text(
+                "responsavel_nome;tempo_medio_minutos_anterior;"
+                "tempo_medio_minutos_atual\nAdvanced Mecanica;10;8\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "conta administradora"):
+                relatorio.build_manual_response_time_rows(
+                    path,
+                    date(2026, 8, 17),
+                    datetime(2026, 8, 24, tzinfo=timezone.utc),
+                )
 
     def test_prepare_command_outputs_machine_readable_contract(self) -> None:
         with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:

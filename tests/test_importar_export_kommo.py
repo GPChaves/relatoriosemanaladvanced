@@ -81,10 +81,10 @@ class ImportKommoExportTests(unittest.TestCase):
     def _write_manual(self) -> None:
         self.manual_path.parent.mkdir(parents=True, exist_ok=True)
         self.manual_path.write_text(
-            "responsavel_nome,conversas_anterior,tempo_medio_minutos_anterior,"
-            "conversas_atual,tempo_medio_minutos_atual\n"
-            "Alice,10,5,12,4\n"
-            "Carla,8,7,9,6\n",
+            "responsavel_nome,tempo_medio_minutos_anterior,"
+            "tempo_medio_minutos_atual\n"
+            "Alice,5,4\n"
+            "Carla,7,6\n",
             encoding="utf-8",
         )
 
@@ -106,11 +106,7 @@ class ImportKommoExportTests(unittest.TestCase):
         conversion = pd.read_csv(output_dir / "04_conversao_responsavel.csv")
         self.assertEqual(
             set(conversion["responsavel_nome"]),
-            {"Alice", "Bruno", "Carla", "Advanced Mecânica"},
-        )
-        self.assertNotIn(
-            importer.UNASSIGNED_RESPONSIBLE,
-            set(conversion["responsavel_nome"]),
+            {"Alice", "Bruno", "Carla", importer.UNASSIGNED_RESPONSIBLE},
         )
         self.assertEqual(set(conversion["pipeline_nome"]), {self.pipeline_name})
         self.assertEqual(
@@ -121,8 +117,8 @@ class ImportKommoExportTests(unittest.TestCase):
         self.assertEqual(alice["total_leads_atual"], 1)
 
         new_leads = pd.read_csv(output_dir / "07_novos_leads_semana.csv")
-        self.assertIn("Advanced Mecânica", set(new_leads["responsavel_nome"]))
-        self.assertNotIn(importer.UNASSIGNED_RESPONSIBLE, set(new_leads["responsavel_nome"]))
+        self.assertNotIn("Advanced Mecânica", set(new_leads["responsavel_nome"]))
+        self.assertIn(importer.UNASSIGNED_RESPONSIBLE, set(new_leads["responsavel_nome"]))
         self.assertNotIn("Ignorado", set(new_leads["responsavel_nome"]))
         self.assertEqual(new_leads["total_novos_leads_anterior"].iloc[0], 2)
         self.assertEqual(new_leads["total_novos_leads_atual"].iloc[0], 3)
