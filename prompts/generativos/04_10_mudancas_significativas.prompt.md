@@ -5,6 +5,7 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
 
 ## Tarefa
 
@@ -12,7 +13,9 @@ Leia os CSVs semanais de `PASTA_CSV`, em especial `04_conversao_responsavel.csv`
 
 Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
 
-Respeite os universos informados nos CSVs: conversão, etapas e perdas usam a chegada a **Serviço iniciado** ou **Perdido**; novos leads usam a **criação**; movimentação usa os eventos. Não compare esses volumes como se medissem a mesma população. O consultor dos indicadores de lead vem exclusivamente do campo personalizado **Usuário responsável**.
+Se `AVALIACAO_GESTOR` existir, use-a apenas para orientar relevância e hipóteses. Não copie, cite nem revele esse contexto; preserve os dados quando houver divergência.
+
+Respeite os universos informados nos CSVs: conversão, etapas e perdas usam a chegada a **Serviço iniciado** ou **Perdido**; novos leads usam a **criação**; movimentação usa os eventos. Não compare esses volumes como se medissem a mesma população. O consultor dos indicadores de lead vem exclusivamente de `responsible_user_id`.
 
 Produza `## Mudanças significativas entre as duas últimas semanas`.
 
@@ -25,6 +28,7 @@ Apresente uma tabela Markdown com as colunas:
 Regras:
 
 - volumes: variação absoluta, nunca pontos percentuais;
+- clientes retorno: mostre quantidade e, quando útil, sua parcela dentro dos novos leads;
 - taxas e participações: variação em pontos percentuais;
 - tempo: variação em minutos, somente se disponível;
 - não misture o valor atual e a variação na mesma célula;
@@ -32,7 +36,7 @@ Regras:
 - se a semana for parcial ou tiver maturação incompleta, destaque a ressalva;
 - não use o PDF como fonte de valores.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.
@@ -40,6 +44,7 @@ Regras:
 - Ao citar pontos percentuais, explique a mudança com os números antes e depois.
 - Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
 - Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+- Prefira uma tabela Markdown compacta quando ela puder substituir vários parágrafos. Limite a prosa às mudanças realmente relevantes e suas ações.
 
 ## Regra de gravação
 

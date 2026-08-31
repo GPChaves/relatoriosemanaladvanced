@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ from relatorio import parse_week_start
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT_ROOT = ROOT / "entradas_manuais" / "atendimentos"
+DEFAULT_MANAGER_INPUT_ROOT = ROOT / "entradas_manuais" / "avaliacao_gestor"
 DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 TEXT_SUFFIXES = {".txt"}
@@ -24,8 +26,9 @@ EXPECTED_ATTENDANCE_COUNT = 3
 # Compatibilidade com integrações anteriores.
 EXPECTED_IMAGE_COUNT = EXPECTED_ATTENDANCE_COUNT
 MANIFEST_NAME = "manifest.json"
+METADATA_NAME = "atendimentos.csv"
 COMBINED_NAME = "04_16_amostragem_qualitativa.md"
-PROMPT_VERSION = "2026-08-23.2"
+PROMPT_VERSION = "2026-08-29.1"
 PROMPT_PATH = ROOT / "prompts" / "generativos" / "04_16_analise_atendimento_individual.prompt.md"
 
 
@@ -39,10 +42,16 @@ class AttendanceSource:
     path: Path
     sha256: str
     analysis_path: Path
+    customer_name: str
+    lead_id: int
 
     @property
     def source_type(self) -> str:
         return "text" if self.path.suffix.casefold() in TEXT_SUFFIXES else "image"
+
+    @property
+    def report_title(self) -> str:
+        return f"## Atendimento — {self.customer_name} — Lead {self.lead_id}"
 
 
 AttendanceImage = AttendanceSource
@@ -55,6 +64,7 @@ class AttendancePreparation:
     analysis_dir: Path
     combined_path: Path
     sources: tuple[AttendanceSource, ...]
+    manager_assessment_path: Path | None = None
 
     @property
     def source_paths(self) -> tuple[Path, ...]:
@@ -87,6 +97,7 @@ class AttendanceArtifacts:
 INDIVIDUAL_PROMPT = """Você é um analista comercial especializado em oficinas mecânicas.
 Analise somente a fonte fornecida. Ela representa um único atendimento e pode ser um print
 ou uma transcrição parcial da conversa. Não use nem suponha informações de outros casos.
+O envelope fornece CLIENTE_NOME e LEAD_ID. Use esses valores no título obrigatório.
 
 Avalie, com linguagem simples para o dono de uma oficina:
 - entendimento da necessidade, veículo e serviço pedido;
@@ -100,12 +111,14 @@ Avalie, com linguagem simples para o dono de uma oficina:
 
 Regras obrigatórias:
 - Separe fato observado de hipótese. Se a imagem estiver cortada/ilegível ou o texto estiver incompleto, diga exatamente o limite.
-- Não reproduza nome, telefone, placa, endereço ou qualquer dado pessoal que apareça na fonte.
+- Além de CLIENTE_NOME no título, não reproduza telefone, placa, endereço ou outros dados pessoais.
 - Não faça julgamento geral do consultor com base em um único atendimento.
 - Não invente falas, valores, defeitos, serviços ou etapas que não estejam visíveis.
 - Seja prático, específico e respeitoso.
 
-Entregue em Markdown, sem título numerado, usando exatamente esta estrutura:
+Entregue em Markdown usando exatamente esta estrutura:
+## Atendimento — CLIENTE_NOME — Lead LEAD_ID
+
 **Resumo do que aparece**
 Um parágrafo curto.
 
@@ -132,6 +145,29 @@ def attendance_input_dir(input_root: Path, week_start: date) -> Path:
 
 def attendance_output_dir(output_root: Path, week_start: date) -> Path:
     return output_root / f"{week_start.year:04d}" / week_start.isoformat() / "generativos"
+
+
+def optional_manager_assessment_path(
+    manager_input_root: Path, week_start: date
+) -> Path | None:
+    path = manager_input_root / week_start.isoformat() / "avaliacao.md"
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise ManualAttendanceError(f"A avaliação opcional do gestor não é um arquivo: {path}")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ManualAttendanceError(
+            f"A avaliação opcional do gestor deve estar em UTF-8: {path}"
+        ) from exc
+    if not text.strip():
+        raise ManualAttendanceError(f"A avaliação opcional do gestor está vazia: {path}")
+    if "\x00" in text:
+        raise ManualAttendanceError(
+            f"A avaliação opcional do gestor contém bytes nulos: {path}"
+        )
+    return path
 
 
 def find_attendance_sources(directory: Path) -> tuple[Path, ...]:
@@ -188,6 +224,50 @@ def validate_text_source(path: Path) -> None:
         raise ManualAttendanceError(f"A conversa em texto contém bytes nulos: {path}")
 
 
+def load_attendance_metadata(directory: Path) -> dict[int, tuple[str, int]]:
+    path = directory / METADATA_NAME
+    if not path.is_file():
+        raise ManualAttendanceError(
+            f"Metadados dos atendimentos não encontrados: {path}. "
+            "Informe atendimento, cliente_nome e lead_id."
+        )
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+        dialect = csv.Sniffer().sniff(raw[:4096], delimiters=";,")
+        rows = list(csv.DictReader(raw.splitlines(), dialect=dialect))
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ManualAttendanceError(f"Metadados dos atendimentos inválidos: {path}") from exc
+    required = {"atendimento", "cliente_nome", "lead_id"}
+    if not rows or not required.issubset(rows[0]):
+        raise ManualAttendanceError(
+            f"{path} deve conter as colunas atendimento, cliente_nome e lead_id."
+        )
+    metadata: dict[int, tuple[str, int]] = {}
+    for row in rows:
+        try:
+            slot = int(str(row.get("atendimento") or "").strip())
+            lead_id = int(str(row.get("lead_id") or "").strip())
+        except ValueError as exc:
+            raise ManualAttendanceError(
+                f"Atendimento e lead_id devem ser inteiros em {path}."
+            ) from exc
+        customer_name = str(row.get("cliente_nome") or "").strip()
+        if slot not in {1, 2, 3} or slot in metadata:
+            raise ManualAttendanceError(
+                f"{path} deve ter uma única linha para cada atendimento 1, 2 e 3."
+            )
+        if not customer_name or lead_id <= 0:
+            raise ManualAttendanceError(
+                f"O atendimento {slot} precisa de cliente_nome e lead_id positivo."
+            )
+        metadata[slot] = (customer_name, lead_id)
+    if set(metadata) != {1, 2, 3}:
+        raise ManualAttendanceError(
+            f"{path} deve ter uma única linha para cada atendimento 1, 2 e 3."
+        )
+    return metadata
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -208,22 +288,41 @@ def prepare_attendances(
     week_start: date,
     *,
     input_root: Path = DEFAULT_INPUT_ROOT,
+    manager_input_root: Path = DEFAULT_MANAGER_INPUT_ROOT,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     create_output_dirs: bool = True,
 ) -> AttendancePreparation:
     """Valida três fontes de atendimento e devolve o contrato dos subagentes."""
     input_dir = attendance_input_dir(input_root, week_start)
     source_paths = find_attendance_sources(input_dir)
+    metadata = load_attendance_metadata(input_dir)
     generative_dir = attendance_output_dir(output_root, week_start)
     analysis_dir = generative_dir / "atendimentos"
     combined_path = generative_dir / COMBINED_NAME
+    manager_assessment = optional_manager_assessment_path(
+        manager_input_root, week_start
+    )
     if create_output_dirs:
         analysis_dir.mkdir(parents=True, exist_ok=True)
     sources = tuple(
-        AttendanceSource(index, path, sha256_file(path), analysis_dir / f"{index:02d}_analise.md")
+        AttendanceSource(
+            index,
+            path,
+            sha256_file(path),
+            analysis_dir / f"{index:02d}_analise.md",
+            metadata[index][0],
+            metadata[index][1],
+        )
         for index, path in enumerate(source_paths, 1)
     )
-    return AttendancePreparation(week_start, input_dir, analysis_dir, combined_path, sources)
+    return AttendancePreparation(
+        week_start,
+        input_dir,
+        analysis_dir,
+        combined_path,
+        sources,
+        manager_assessment,
+    )
 
 
 def preparation_payload(preparation: AttendancePreparation) -> dict[str, object]:
@@ -234,6 +333,11 @@ def preparation_payload(preparation: AttendancePreparation) -> dict[str, object]
         "combined_path": str(preparation.combined_path),
         "prompt_path": str(PROMPT_PATH),
         "prompt_version": PROMPT_VERSION,
+        "avaliacao_gestor_path": (
+            str(preparation.manager_assessment_path)
+            if preparation.manager_assessment_path is not None
+            else None
+        ),
         "sources": [
             {
                 "slot": source.slot,
@@ -241,6 +345,9 @@ def preparation_payload(preparation: AttendancePreparation) -> dict[str, object]
                 "path": str(source.path),
                 "sha256": source.sha256,
                 "analysis_path": str(source.analysis_path),
+                "cliente_nome": source.customer_name,
+                "lead_id": source.lead_id,
+                "titulo_obrigatorio": source.report_title,
             }
             for source in preparation.sources
         ],
@@ -265,7 +372,17 @@ def expected_manifest(preparation: AttendancePreparation) -> dict[str, object]:
     prompt = load_individual_prompt()
     analyses = []
     for source in preparation.sources:
-        validate_markdown_file(source.analysis_path, f"Análise do atendimento {source.slot}")
+        analysis = validate_markdown_file(
+            source.analysis_path, f"Análise do atendimento {source.slot}"
+        )
+        first_line = next(
+            (line.strip() for line in analysis.splitlines() if line.strip()), ""
+        )
+        if first_line != source.report_title:
+            raise ManualAttendanceError(
+                f"A análise do atendimento {source.slot} deve começar com "
+                f"{source.report_title!r}."
+            )
         analyses.append(
             {
                 "slot": source.slot,
@@ -273,18 +390,37 @@ def expected_manifest(preparation: AttendancePreparation) -> dict[str, object]:
                 "sha256": sha256_file(source.analysis_path),
             }
         )
-    validate_markdown_file(preparation.combined_path, "Análise qualitativa consolidada")
+    combined = validate_markdown_file(
+        preparation.combined_path, "Análise qualitativa consolidada"
+    )
+    for source in preparation.sources:
+        consolidated_title = source.report_title.replace("## ", "### ", 1)
+        if consolidated_title not in combined:
+            raise ManualAttendanceError(
+                "A análise qualitativa consolidada deve preservar o título "
+                f"{consolidated_title!r}."
+            )
     return {
-        "version": 3,
+        "version": 5,
         "week_start": preparation.week_start.isoformat(),
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "manager_assessment": (
+            {
+                "filename": preparation.manager_assessment_path.name,
+                "sha256": sha256_file(preparation.manager_assessment_path),
+            }
+            if preparation.manager_assessment_path is not None
+            else None
+        ),
         "sources": [
             {
                 "slot": source.slot,
                 "type": source.source_type,
                 "filename": source.path.name,
                 "sha256": source.sha256,
+                "cliente_nome": source.customer_name,
+                "lead_id": source.lead_id,
             }
             for source in preparation.sources
         ],
@@ -320,9 +456,15 @@ def finalize_attendances(
     week_start: date,
     *,
     input_root: Path = DEFAULT_INPUT_ROOT,
+    manager_input_root: Path = DEFAULT_MANAGER_INPUT_ROOT,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
 ) -> AttendanceArtifacts:
-    preparation = prepare_attendances(week_start, input_root=input_root, output_root=output_root)
+    preparation = prepare_attendances(
+        week_start,
+        input_root=input_root,
+        manager_input_root=manager_input_root,
+        output_root=output_root,
+    )
     manifest = expected_manifest(preparation)
     _write_manifest_atomic(preparation.analysis_dir / MANIFEST_NAME, manifest)
     return _as_artifacts(preparation, reused=False)
@@ -343,10 +485,15 @@ def validate_attendance_artifacts(
     week_start: date,
     *,
     input_root: Path = DEFAULT_INPUT_ROOT,
+    manager_input_root: Path = DEFAULT_MANAGER_INPUT_ROOT,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
 ) -> AttendanceArtifacts:
     preparation = prepare_attendances(
-        week_start, input_root=input_root, output_root=output_root, create_output_dirs=False,
+        week_start,
+        input_root=input_root,
+        manager_input_root=manager_input_root,
+        output_root=output_root,
+        create_output_dirs=False,
     )
     try:
         expected = expected_manifest(preparation)
@@ -366,6 +513,7 @@ def process_attendances(
     week_start: date,
     *,
     input_root: Path = DEFAULT_INPUT_ROOT,
+    manager_input_root: Path = DEFAULT_MANAGER_INPUT_ROOT,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     force: bool = False,
     validate_only: bool = False,
@@ -373,7 +521,12 @@ def process_attendances(
 ) -> AttendanceArtifacts:
     """Compatibilidade com o gerador: apenas valida artefatos feitos externamente."""
     del force, validate_only, input_fn
-    return validate_attendance_artifacts(week_start, input_root=input_root, output_root=output_root)
+    return validate_attendance_artifacts(
+        week_start,
+        input_root=input_root,
+        manager_input_root=manager_input_root,
+        output_root=output_root,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -389,13 +542,20 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser = subparsers.add_parser(command, help=help_text)
         command_parser.add_argument("--week-start", required=True, type=parse_week_start, metavar="AAAA-MM-DD")
         command_parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
+        command_parser.add_argument(
+            "--manager-input-root", type=Path, default=DEFAULT_MANAGER_INPUT_ROOT
+        )
         command_parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    common = {"input_root": args.input_root.resolve(), "output_root": args.output_root.resolve()}
+    common = {
+        "input_root": args.input_root.resolve(),
+        "manager_input_root": args.manager_input_root.resolve(),
+        "output_root": args.output_root.resolve(),
+    }
     try:
         if args.command == "prepare":
             preparation = prepare_attendances(args.week_start, **common)

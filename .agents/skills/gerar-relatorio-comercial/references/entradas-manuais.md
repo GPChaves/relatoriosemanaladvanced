@@ -22,7 +22,7 @@ Não converta `N/C` para zero. Rejeite valores negativos, responsáveis duplicad
 
 ## Três fontes de atendimento
 
-Peça exatamente três casos, cada um representando um atendimento diferente. Cada caso pode chegar como:
+Peça exatamente três casos, cada um representando um atendimento diferente. Para cada caso, peça também o nome do cliente que deve aparecer no relatório e o número do lead na Kommo. Cada caso pode chegar como:
 
 - PNG ou JPG da conversa;
 - conversa copiada e colada diretamente na resposta do usuário.
@@ -35,8 +35,14 @@ Para imagens, explique que o usuário deve:
 
 Para texto colado, peça que os três casos sejam separados e identificados como `Atendimento 1`, `Atendimento 2` e `Atendimento 3`. Preserve a ordem das mensagens, identifique `Cliente:` e `Consultor:` quando isso estiver claro e remova os mesmos dados pessoais antes de salvar. Não complete trechos ausentes nem corrija o conteúdo da conversa.
 
-Salve em `entradas_manuais/atendimentos/AAAA-MM-DD/` como `01`, `02` e `03`: preserve PNG/JPG para anexos e use TXT UTF-8 para texto colado. Aceite qualquer combinação dos formatos, desde que existam exatamente três fontes. Considere a entrada válida somente quando `processar_atendimentos.py prepare` aceitar tipos, conteúdo e contagem. Se um anexo não estiver acessível como arquivo local, peça que seja anexado novamente; não crie substitutos.
+Salve em `entradas_manuais/atendimentos/AAAA-MM-DD/` como `01`, `02` e `03`: preserve PNG/JPG para anexos e use TXT UTF-8 para texto colado. Na mesma pasta, grave `atendimentos.csv` com cabeçalho `atendimento;cliente_nome;lead_id` e uma linha para cada slot. O nome não pode estar vazio e o lead deve ser um inteiro positivo. Aceite qualquer combinação dos formatos, desde que existam exatamente três fontes e três metadados correspondentes. Considere a entrada válida somente quando `processar_atendimentos.py prepare` aceitar tipos, conteúdo, metadados e contagem. Se um anexo não estiver acessível como arquivo local, peça que seja anexado novamente; não crie substitutos.
+
+## Avaliação opcional do gestor
+
+Ofereça ao usuário, na mesma mensagem das demais entradas, a possibilidade de acrescentar observações próprias sobre a semana, consultores ou casos específicos. Deixe claro que é opcional e que a ausência não pausa o pipeline.
+
+Quando houver conteúdo, salve-o em `entradas_manuais/avaliacao_gestor/AAAA-MM-DD/avaliacao.md`, em UTF-8. Preserve as palavras do usuário e organize somente quando necessário sob `Visão geral`, nomes dos consultores e `Casos específicos`; não transforme opiniões em fatos nem acrescente interpretações nessa etapa. A avaliação orienta os subagentes, mas não deve ser copiada, citada ou identificada como uma fonte separada no relatório.
 
 ## Regra de retomada
 
-Pergunte em uma única mensagem por tudo que estiver ausente. Depois da resposta, salve e valide novamente. Não inicie Kommo, XLSX ou geração de texto enquanto uma entrada obrigatória estiver ausente ou inválida.
+Pergunte em uma única mensagem por tudo que estiver ausente e ofereça a avaliação opcional do gestor uma única vez. Depois da resposta, salve e valide novamente. Uma recusa ou ausência de avaliação do gestor é válida. Não inicie Kommo, XLSX ou geração de texto enquanto uma entrada obrigatória estiver ausente ou inválida.

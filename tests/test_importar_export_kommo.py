@@ -34,6 +34,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "10/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
                 "Data Fechada": "23/08/2026 17:00",
+                "ID do contato": 1001,
             },
             {
                 "Lead usuário responsável": "Bruno",
@@ -42,6 +43,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "11/08/2026 09:00",
                 "Última modificação": "16/08/2026 18:00",
                 "Data Fechada": "16/08/2026 17:00",
+                "ID do contato": 1002,
             },
             {
                 "Lead usuário responsável": "Alice",
@@ -50,6 +52,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "17/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
                 "Data Fechada": "",
+                "ID do contato": 1001,
             },
             {
                 "Lead usuário responsável": "Carla",
@@ -58,6 +61,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "18/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
                 "Data Fechada": "23/08/2026 17:00",
+                "ID do contato": 1003,
             },
             {
                 "Lead usuário responsável": "Advanced Mecânica",
@@ -66,6 +70,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "19/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
                 "Data Fechada": "23/08/2026 17:00",
+                "ID do contato": 1004,
             },
             {
                 "Lead usuário responsável": "Ignorado",
@@ -74,6 +79,7 @@ class ImportKommoExportTests(unittest.TestCase):
                 "Data Criada": "20/08/2026 09:00",
                 "Última modificação": "23/08/2026 18:00",
                 "Data Fechada": "",
+                "ID do contato": 1005,
             },
         ]
         pd.DataFrame(rows).to_excel(self.source, index=False)
@@ -122,6 +128,10 @@ class ImportKommoExportTests(unittest.TestCase):
         self.assertNotIn("Ignorado", set(new_leads["responsavel_nome"]))
         self.assertEqual(new_leads["total_novos_leads_anterior"].iloc[0], 2)
         self.assertEqual(new_leads["total_novos_leads_atual"].iloc[0], 3)
+        self.assertEqual(new_leads["total_clientes_retorno_anterior"].iloc[0], 0)
+        self.assertEqual(new_leads["total_clientes_retorno_atual"].iloc[0], 1)
+        alice_new = new_leads[new_leads["responsavel_nome"] == "Alice"].iloc[0]
+        self.assertEqual(alice_new["clientes_retorno_atual"], 1)
 
         closures = pd.read_csv(output_dir / "10_eventos_fechamento.csv")
         self.assertEqual(len(closures), 4)
@@ -147,6 +157,15 @@ class ImportKommoExportTests(unittest.TestCase):
         frame.to_excel(self.source, index=False)
 
         with self.assertRaisesRegex(ValueError, "Data Fechada.*data inválida"):
+            self._build()
+
+        self.assertFalse(self.output_root.exists())
+
+    def test_missing_contact_id_requires_api_or_complete_export(self) -> None:
+        frame = pd.read_excel(self.source).drop(columns=["ID do contato"])
+        frame.to_excel(self.source, index=False)
+
+        with self.assertRaisesRegex(ValueError, "clientes retorno"):
             self._build()
 
         self.assertFalse(self.output_root.exists())

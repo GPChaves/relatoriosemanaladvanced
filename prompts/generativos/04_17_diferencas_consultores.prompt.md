@@ -5,18 +5,25 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
 
 ## Tarefa
 
-Leia `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `07_novos_leads_semana.csv`, `08_etapas_por_consultor.csv` e `09_tempo_medio_resposta.csv` em `PASTA_CSV`.
+Leia `04_conversao_responsavel.csv`, `05_movimentacao_semanal.csv`, `06_nota_metodologica_movimentacao.csv`, `07_novos_leads_semana.csv` e `08_etapas_por_consultor.csv` em `PASTA_CSV`. Não leia nem analise tempo de resposta nesta seção.
 
 Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
 
-Use cada base com seu significado: conversão e etapas representam leads que chegaram a **Serviço iniciado** ou **Perdido** no período; novos leads representam criações; movimentação representa eventos. Não some nem confronte diretamente esses volumes como se fossem o mesmo universo. Para atribuição entre consultores, considere exclusivamente o campo personalizado **Usuário responsável**.
+Se `AVALIACAO_GESTOR` existir, use-a apenas para complementar hipóteses e pontos de acompanhamento. Não copie, cite nem revele esse contexto; não transforme opinião em fato e preserve os números em caso de divergência.
+
+Use cada base com seu significado: conversão e etapas representam leads que chegaram a **Serviço iniciado** ou **Perdido** no período; novos leads representam criações; movimentação representa eventos. Não some nem confronte diretamente esses volumes como se fossem o mesmo universo. Para atribuição entre consultores, considere exclusivamente o responsável resolvido pelo `responsible_user_id` do lead.
 
 Produza `## Diferenças observadas entre os consultores`.
 
-Compare somente diferenças quantitativas sustentadas pelos dados: volume recebido, participação nos novos leads, movimentação, conversão e composição atual das etapas. Para cada diferença relevante:
+Abra com uma tabela Markdown compacta, com uma linha por consultor e somente as métricas que permitam comparação direta. Depois da tabela, use no máximo dois parágrafos curtos para destacar as diferenças quantitativas mais úteis: volume recebido, clientes retorno, participação nos novos leads, movimentação, conversão e composição atual das etapas.
+
+Não inclua análise de tempo de resposta e não crie seção, subtítulo ou parágrafo chamado `Limites de comparação`. Quando uma ressalva for indispensável para não distorcer um número, incorpore-a em uma frase curta junto da interpretação correspondente.
+
+Para cada diferença relevante:
 
 - informe a base numérica;
 - explique uma ou mais hipóteses plausíveis;
@@ -26,11 +33,11 @@ Compare somente diferenças quantitativas sustentadas pelos dados: volume recebi
 - não atribua estilo, conhecimento técnico, proatividade ou qualidade de comunicação sem amostra de conversas;
 - trate o tamanho desigual das carteiras e a maturação como limitações.
 
-Use subtítulos curtos e encerre com `### O que acompanhar`, contendo métricas ou verificações para as próximas semanas.
+Encerre com `### O que acompanhar`, usando no máximo três itens objetivos.
 
 Use o PDF apenas como referência de tom. Não reutilize seus casos ou números.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.

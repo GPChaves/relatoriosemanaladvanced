@@ -28,6 +28,7 @@ from relatorio import (
     normalize_report_responsible_name,
     parse_week_start,
     report_timezone,
+    validate_weekly_new_leads_rows,
     write_csv_rows_atomic,
 )
 
@@ -41,6 +42,12 @@ CLOSE_DATE_ALIASES = (
     "Data de fechamento",
     "Data fechada",
     "Fechado em",
+)
+CONTACT_ID_ALIASES = (
+    "ID do contato",
+    "Contato ID",
+    "Contact ID",
+    "ID contato",
 )
 
 
@@ -70,6 +77,24 @@ def resolve_close_date_column(columns: Sequence[object]) -> str:
     if len(matches) > 1:
         raise ValueError(
             "O export contém mais de uma coluna de data de fechamento: "
+            + ", ".join(matches)
+            + ". Mantenha somente uma."
+        )
+    return matches[0]
+
+
+def resolve_contact_id_column(columns: Sequence[object]) -> str:
+    available = {str(column).strip(): str(column) for column in columns}
+    matches = [available[name] for name in CONTACT_ID_ALIASES if name in available]
+    if not matches:
+        raise ValueError(
+            "Não é possível identificar clientes retorno neste XLSX. Inclua uma "
+            "coluna de ID estável do contato (" + ", ".join(CONTACT_ID_ALIASES) + ") "
+            "ou execute relatorio.py pela API da Kommo."
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            "O export contém mais de uma coluna de ID do contato: "
             + ", ".join(matches)
             + ". Mantenha somente uma."
         )
@@ -147,6 +172,7 @@ def _preflight_source(
             "Colunas ausentes no export da Kommo: " + ", ".join(sorted(missing))
         )
     close_date_column = resolve_close_date_column(frame.columns)
+    contact_id_column = resolve_contact_id_column(frame.columns)
 
     frame["Data Criada"] = pd.to_datetime(
         frame["Data Criada"], format="mixed", dayfirst=True, errors="coerce"
@@ -154,6 +180,13 @@ def _preflight_source(
     raw_close_dates = frame[close_date_column].copy()
     frame[close_date_column] = pd.to_datetime(
         frame[close_date_column], format="mixed", dayfirst=True, errors="coerce"
+    )
+    contact_keys = frame[contact_id_column].map(
+        lambda value: "" if pd.isna(value) else str(value).strip()
+    )
+    first_lead_by_contact = frame.groupby(contact_keys)["Data Criada"].transform("min")
+    frame["cliente_retorno"] = (
+        contact_keys.ne("") & first_lead_by_contact.lt(frame["Data Criada"])
     )
     frame = frame[
         frame["Funil de vendas"].astype(str).str.casefold()
@@ -307,6 +340,8 @@ def _build_artifacts(
 
     total_previous = len(previous_created)
     total_current = len(current_created)
+    total_returning_previous = int(previous_created["cliente_retorno"].sum())
+    total_returning_current = int(current_created["cliente_retorno"].sum())
     new_lead_responsibles = sorted(
         set(previous_created["responsavel"]) | set(current_created["responsavel"]),
         key=lambda name: (name == UNASSIGNED_RESPONSIBLE, name.casefold()),
@@ -315,6 +350,16 @@ def _build_artifacts(
     for responsible in new_lead_responsibles:
         previous_count = int((previous_created["responsavel"] == responsible).sum())
         current_count = int((current_created["responsavel"] == responsible).sum())
+        previous_returning = int(
+            previous_created.loc[
+                previous_created["responsavel"] == responsible, "cliente_retorno"
+            ].sum()
+        )
+        current_returning = int(
+            current_created.loc[
+                current_created["responsavel"] == responsible, "cliente_retorno"
+            ].sum()
+        )
         previous_share = pct(previous_count, total_previous)
         current_share = pct(current_count, total_current)
         new_lead_rows.append(
@@ -322,21 +367,37 @@ def _build_artifacts(
                 "pipeline_id": "",
                 "pipeline_nome": pipeline_name,
                 "universo": "leads_criados_no_periodo",
+                "metodologia_cliente_retorno": (
+                    "historico_disponivel_no_export_por_id_contato"
+                ),
                 "responsavel_id": "",
                 "responsavel_nome": responsible,
                 "novos_leads_anterior": previous_count,
                 "novos_leads_atual": current_count,
+                "clientes_retorno_anterior": previous_returning,
+                "clientes_retorno_atual": current_returning,
+                "percentual_retorno_anterior": pct(
+                    previous_returning, previous_count
+                ),
+                "percentual_retorno_atual": pct(current_returning, current_count),
+                "variacao_retorno_pp": pp(
+                    pct(current_returning, current_count),
+                    pct(previous_returning, previous_count),
+                ),
                 "variacao_absoluta_responsavel": current_count - previous_count,
                 "participacao_anterior": previous_share,
                 "participacao_atual": current_share,
                 "variacao_pp": pp(current_share, previous_share),
                 "total_novos_leads_anterior": total_previous,
                 "total_novos_leads_atual": total_current,
+                "total_clientes_retorno_anterior": total_returning_previous,
+                "total_clientes_retorno_atual": total_returning_current,
                 "variacao_total_absoluta": total_current - total_previous,
                 "situacao_semana_atual": "completa",
                 "data_hora_extracao": stamp,
             }
         )
+    validate_weekly_new_leads_rows(new_lead_rows)
     artifacts.append(("07_novos_leads_semana.csv", WEEKLY_NEW_LEADS_FIELDS, new_lead_rows))
 
     closed_responsibles = sorted(

@@ -5,6 +5,7 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `AVALIACAO_GESTOR`: opcional; observações do gestor para complementar a consolidação.
 
 ## Tarefa
 
@@ -14,7 +15,9 @@ Antes de qualquer outra ação, procure estas três análises individuais:
 - `PASTA_CSV/generativos/atendimentos/02_analise.md`
 - `PASTA_CSV/generativos/atendimentos/03_analise.md`
 
-Se as três existirem, elas já foram produzidas por agentes independentes, um por fonte de atendimento. Nesse caso, não volte a analisar os atendimentos e não acrescente interpretações. Apenas reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`, mantendo os blocos `### Atendimento 1`, `### Atendimento 2` e `### Atendimento 3`. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
+Se as três existirem, elas já foram produzidas por agentes independentes, um por fonte de atendimento. Nesse caso, não volte a analisar os atendimentos. Reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`. Preserve em cada bloco o título original `## Atendimento — NOME DO CLIENTE — Lead NÚMERO`, rebaixando-o para `###` para manter a hierarquia do documento. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
+
+Quando `AVALIACAO_GESTOR` existir, use-a apenas como complemento interpretativo: ela pode orientar ênfases, hipóteses e recomendações, mas não deve ser copiada, citada nem apresentada como uma fonte separada. Não diga que houve uma avaliação adicional. Quando uma observação não puder ser sustentada pelas análises dos casos, trate-a no máximo como hipótese de acompanhamento; em caso de conflito, preserve o que foi observado nos atendimentos.
 
 O texto consolidado deve soar como avaliação autoral do gestor. Não mencione prompts, agentes, inteligência artificial, automação, scripts, APIs, arquivos internos nem a forma usada para preparar as análises.
 
@@ -36,7 +39,7 @@ Se houver fonte adequada, analise somente os casos fornecidos, anonimize dados p
 
 Não reutilize casos, nomes, telefones, IDs, falas ou conclusões do PDF. O PDF é apenas referência editorial.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.

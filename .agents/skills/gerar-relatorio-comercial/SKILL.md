@@ -17,7 +17,7 @@ Produza um relatório completo para uma semana. Preserve as entradas operacionai
 
 ## Coletar entradas manuais
 
-Leia [references/entradas-manuais.md](references/entradas-manuais.md). Verifique primeiro se a semana já possui um CSV válido de tempo de resposta e exatamente três fontes válidas de atendimento. Cada caso pode ser uma imagem PNG/JPG ou uma transcrição TXT.
+Leia [references/entradas-manuais.md](references/entradas-manuais.md). Verifique primeiro se a semana já possui um CSV válido de tempo de resposta, exatamente três fontes válidas de atendimento e os metadados de cliente e lead de cada caso. Cada caso pode ser uma imagem PNG/JPG ou uma transcrição TXT. Ofereça também a avaliação do gestor, deixando explícito que ela é opcional e que sua ausência não interrompe a execução.
 
 Peça em uma única mensagem somente o que estiver ausente. Diga explicitamente que a skill está pausando para aguardar as entradas. Quando o usuário responder, salve os dados nos caminhos semanais e valide novamente antes de consultar a API ou processar o XLSX. Confirme com `git check-ignore` que cada entrada salva está ignorada; se não estiver, pare e corrija o `.gitignore` antes de continuar.
 
@@ -44,11 +44,13 @@ Capture código de saída, `stdout` e `stderr`. Em caso de erro, pare a etapa, l
 
 Na rota da API, confirme que os indicadores de conversão, etapas e perdas usam eventos `lead_status_changed` cuja etapa de destino é `Serviço iniciado` ou `Perdido`. A data do evento define a semana; se o mesmo lead tiver mais de uma transição terminal na mesma semana, somente a última entra no indicador e todas permanecem auditáveis em `10_eventos_fechamento.csv`. Não use `closed_at` para reconciliar reaberturas.
 
-Para qualquer indicador atribuído a um consultor, use exclusivamente o valor do campo personalizado de lead `Usuário responsável`. Não use `responsible_user_id`, `created_by`, `updated_by`, o autor da mudança de etapa nem o usuário que preencheu a ficha. Remova de Milena e Vitor qualquer sufixo iniciado por `Advanced Mecânica` ou `Advanced Mecanica`, deixando apenas `Milena` e `Vitor`. Trate `Advanced Mecânica` como conta administradora, nunca como consultor; seus leads ficam em `Sem usuário responsável`. Valor ausente também deve aparecer como `Sem usuário responsável`; campo inexistente, duplicado ou com múltiplos valores deve interromper a execução com diagnóstico.
+Para os leads criados nas duas semanas comparadas, obtenha os contatos vinculados e classifique como `cliente retorno` todo lead cujo contato já possua outro lead com `created_at` anterior. Use IDs estruturais de contato e lead; nunca compare nome ou telefone. Retornos são um subconjunto dos novos leads e devem aparecer no total e por consultor em `07_novos_leads_semana.csv`.
 
-Na rota XLSX, exija `Lead usuário responsável` e uma única coluna de data de fechamento entre os nomes aceitos pelo importador. Como o XLSX é uma fotografia sem histórico de transições, registre a metodologia como aproximação baseada na data de fechamento e na etapa terminal atual; nunca substitua essa data por `Última modificação`.
+Para qualquer indicador atribuído a um consultor, use exclusivamente o `responsible_user_id` nativo do lead e resolva o nome pela extração de usuários da Kommo. Não procure o campo personalizado `Usuário responsável` e não use `created_by`, `updated_by`, o autor da mudança de etapa nem o usuário que preencheu a ficha. Remova de Milena e Vitor qualquer sufixo iniciado por `Advanced Mecânica` ou `Advanced Mecanica`, deixando apenas `Milena` e `Vitor`. Trate `Advanced Mecânica` como conta administradora, nunca como consultor; seus leads ficam em `Sem usuário responsável`. ID ausente, inválido ou sem usuário correspondente também deve aparecer como `Sem usuário responsável`.
 
-Depois da geração, compare os nomes de `04_conversao_responsavel.csv` com `09_tempo_medio_resposta.csv` apenas para detectar rótulos incompatíveis no relatório. Se algum consultor não tiver uma linha manual comparável, pause e peça a correção; não associe nomes por aproximação e não altere a atribuição vinda do campo personalizado.
+Na rota XLSX, exija `Lead usuário responsável`, uma coluna estável de ID do contato e uma única coluna de data de fechamento entre os nomes aceitos pelo importador. O export deve conter o histórico necessário para localizar leads anteriores do mesmo contato; caso contrário, explique que a contagem de retornos exige a rota da API. Como o XLSX é uma fotografia sem histórico de transições, registre a metodologia de fechamento como aproximação baseada na data de fechamento e na etapa terminal atual; nunca substitua essa data por `Última modificação`.
+
+Depois da geração, compare os nomes de `04_conversao_responsavel.csv` com `09_tempo_medio_resposta.csv` apenas para detectar rótulos incompatíveis no relatório. Se algum consultor não tiver uma linha comparável, pause e peça a correção; não associe nomes por aproximação e não altere a atribuição vinda do `responsible_user_id`.
 
 ## Gerar os textos em contextos limpos
 
@@ -60,18 +62,22 @@ Prepare os atendimentos:
 python processar_atendimentos.py prepare --week-start AAAA-MM-DD
 ```
 
-Use `collaboration.spawn_agent` com `fork_turns="none"` para cada texto. Primeiro crie três agentes isolados, um por fonte de atendimento. Para PNG/JPG, forneça a imagem; para TXT, forneça somente a transcrição. Depois crie um agente limpo para a consolidação qualitativa. Finalize e valide os hashes:
+Use `collaboration.spawn_agent` com `fork_turns="none"` para cada texto. Primeiro crie três agentes isolados, um por fonte de atendimento. Para PNG/JPG, forneça a imagem; para TXT, forneça somente a transcrição. Forneça também apenas os metadados daquele caso. A análise individual deve começar com `## Atendimento — NOME DO CLIENTE — Lead NÚMERO`. Depois crie um agente limpo para a consolidação qualitativa, preservando esses títulos. Finalize e valide os hashes:
 
 ```powershell
 python processar_atendimentos.py finalize --week-start AAAA-MM-DD
 python processar_atendimentos.py validate --week-start AAAA-MM-DD
 ```
 
+Quando existir `entradas_manuais/avaliacao_gestor/AAAA-MM-DD/avaliacao.md`, não a envie aos agentes individuais. Envie-a ao agente de consolidação dos atendimentos e somente aos itens semanais marcados com `manager_context: true` no manifesto. Ela deve orientar a análise sem ser copiada, citada ou revelada no relatório; os dados prevalecem em caso de conflito.
+
 Em seguida, crie um agente limpo para cada item semanal do manifesto. Crie o agente mensal somente quando os CSVs mensais tiverem sido gerados. Nunca escreva um texto generativo no agente principal e nunca forneça a um agente fontes que não estejam declaradas para a seção.
 
 Espere todos os agentes, confira que cada saída é UTF-8, não vazia e começa com `## `. Repita uma falha no máximo uma vez em outro contexto limpo.
 
 Todo texto entregue deve soar como análise autoral do gestor. Não permita menções a arquivos internos, CSV, Markdown, coleta manual, agentes, inteligência artificial, automação, scripts ou APIs. Antes de gerar o PDF, execute o validador e corrija qualquer saída que exponha esses bastidores; não apenas remova a frase isolada se isso prejudicar o sentido.
+
+Mantenha os textos curtos e leves. Prefira tabelas Markdown para comparações repetitivas e use a prosa somente para interpretação, decisão e ressalvas indispensáveis. Na seção `Diferenças entre consultores`, não analise tempo de resposta e não inclua o bloco `Limites de comparação`.
 
 ## Gerar e entregar o PDF
 

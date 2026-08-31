@@ -33,7 +33,7 @@ Estruture em:
 
 O PDF serve apenas como referência do tipo de auditoria desejada. Os casos pessoais e números do PDF não podem ser reutilizados.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.
@@ -41,6 +41,7 @@ O PDF serve apenas como referência do tipo de auditoria desejada. Os casos pess
 - Ao citar pontos percentuais, explique a mudança com os números antes e depois.
 - Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
 - Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+- Prefira uma tabela Markdown compacta com problema, evidência e correção. Não repita a mesma recomendação em parágrafos separados.
 
 ## Regra de gravação
 

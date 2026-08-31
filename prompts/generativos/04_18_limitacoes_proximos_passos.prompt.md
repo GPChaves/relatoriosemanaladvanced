@@ -32,7 +32,7 @@ Estruture em:
 
 O PDF é somente referência editorial. Não copie seus casos, números ou afirmações.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.
@@ -40,6 +40,7 @@ O PDF é somente referência editorial. Não copie seus casos, números ou afirm
 - Ao citar pontos percentuais, explique a mudança com os números antes e depois.
 - Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
 - Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+- Use uma tabela Markdown compacta para limitação, impacto e próximo passo. Fora dela, mantenha no máximo um parágrafo curto.
 
 ## Regra de gravação
 

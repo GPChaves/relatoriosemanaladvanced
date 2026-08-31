@@ -12,3 +12,6 @@ entradas_manuais/tempo_resposta/*
 entradas_manuais/atendimentos/*
 !entradas_manuais/atendimentos/_modelo/
 !entradas_manuais/atendimentos/_modelo/**
+entradas_manuais/avaliacao_gestor/*
+!entradas_manuais/avaliacao_gestor/_modelo/
+!entradas_manuais/avaliacao_gestor/_modelo/**

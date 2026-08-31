@@ -14,7 +14,7 @@ Quando aplicável, leia `02_distribuicao_mensal_responsavel.csv`, `03_numeros_gl
 
 Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
 
-Os arquivos `02` e `03` usam a última transição terminal de cada lead no mês para **Serviço iniciado** ou **Perdido**. Os arquivos `13` e `14` acompanham os leads **criados** no mês e seu estado atual. Não tente fazer os totais desses dois universos coincidirem e explique a diferença quando ela for relevante. A atribuição por consultor usa somente o campo personalizado **Usuário responsável**.
+Os arquivos `02` e `03` usam a última transição terminal de cada lead no mês para **Serviço iniciado** ou **Perdido**. Os arquivos `13` e `14` acompanham os leads **criados** no mês e seu estado atual. Não tente fazer os totais desses dois universos coincidirem e explique a diferença quando ela for relevante. A atribuição por consultor usa somente `responsible_user_id`.
 
 O texto deve:
 
@@ -33,7 +33,7 @@ O PDF é referência editorial, não fonte numérica. Use somente os CSVs atuais
 
 Finalize com `### Implicações para o próximo mês`, contendo ações de acompanhamento sustentadas pelos dados.
 
-+## Público e linguagem
+## Público e linguagem
 
 - Escreva para donos de oficina mecânica, sem presumir conhecimento de análise de dados.
 - Use frases curtas, voz direta e termos comuns do dia a dia.
@@ -41,6 +41,7 @@ Finalize com `### Implicações para o próximo mês`, contendo ações de acomp
 - Ao citar pontos percentuais, explique a mudança com os números antes e depois.
 - Evite linguagem corporativa e expressões abstratas, como “materialmente relevante”, “distribuição operacional”, “causalidade” e “evidência adicional”. Se um termo técnico for indispensável, explique-o na mesma frase.
 - Corte repetições e resuma ideias longas, sem retirar números importantes, limites dos dados, hipóteses ou ações práticas.
+- Prefira uma tabela Markdown compacta para tendências mensais e use a prosa apenas para as conclusões prioritárias.
 
 ## Regra de gravação
 

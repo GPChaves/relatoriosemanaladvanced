@@ -23,9 +23,11 @@ O relatório deve distinguir:
 
 Na rota da API, o fechamento é datado pelo evento de mudança de etapa. Se o mesmo lead chegar mais de uma vez a etapas terminais na mesma semana, somente a última transição terminal daquela semana entra nos indicadores; todas as transições ficam no arquivo de auditoria. Não é feita reconciliação adicional com `closed_at`. Na rota XLSX, que não contém histórico de eventos, usa-se a data de fechamento combinada à etapa terminal atual como aproximação explícita. Eventos de movimentação continuam sendo apurados pela data do próprio evento.
 
-Em todos os indicadores de lead, a atribuição ao consultor deve usar exclusivamente o campo personalizado **Usuário responsável** extraído da ficha do lead. O responsável padrão da Kommo, o autor do evento, quem mudou a etapa e quem preencheu a ficha não podem ser usados como substitutos. Valor vazio deve ser exibido como **Sem usuário responsável**.
+Em todos os indicadores de lead, a atribuição ao consultor deve usar exclusivamente o `responsible_user_id` nativo do lead, resolvendo o nome pela lista de usuários da Kommo. O autor do evento, quem mudou a etapa e quem preencheu a ficha não podem ser usados como substitutos. ID ausente ou sem usuário correspondente deve ser exibido como **Sem usuário responsável**.
 
 Os nomes `Milena - Advanced Mecânica...` e `Vitor - Advanced Mecânica...`, inclusive sem acento, representam respectivamente **Milena** e **Vitor** e devem ser exibidos somente assim. **Advanced Mecânica** é uma conta administradora, não um consultor; leads atribuídos a ela entram em **Sem usuário responsável** e não geram uma análise individual de consultor.
+
+Em **Novos leads**, cada lead aberto no período conta uma vez. **Cliente retorno** é o subconjunto desses leads cujo contato vinculado já possuía outro lead com criação anterior. A conferência usa IDs de contato e lead, nunca nome ou telefone. A diferença entre novos leads e clientes retorno representa implicitamente os contatos sem lead anterior identificado.
 
 ### 2.2. Separar fato, interpretação e recomendação
 
@@ -109,7 +111,7 @@ O relatório final deve soar como uma análise escrita pessoalmente pelo gestor.
 
 **Exibição:** condicional. Esta seção aparece somente no relatório referente à última semana do mês.
 
-**Conteúdo:** total de leads cuja última transição terminal no mês foi para **Serviço iniciado** ou **Perdido**, distribuído pelo campo personalizado **Usuário responsável**, com quantidade e participação percentual.
+**Conteúdo:** total de leads cuja última transição terminal no mês foi para **Serviço iniciado** ou **Perdido**, distribuído pelo responsável indicado em `responsible_user_id`, com quantidade e participação percentual.
 
 **Objetivo:** mostrar como o volume mensal foi distribuído entre os responsáveis e revelar concentração, desequilíbrio de carga ou problemas de atribuição no CRM.
 
@@ -153,7 +155,7 @@ O relatório final deve soar como uma análise escrita pessoalmente pelo gestor.
 
 **Exibição:** sempre que houver base suficiente para calcular a taxa individual.
 
-**Conteúdo:** taxa de serviços iniciados de cada responsável, calculada sobre os leads cuja última transição terminal da semana foi para **Serviço iniciado** ou **Perdido**. A atribuição usa o campo personalizado **Usuário responsável** da extração. Quando houver dados comparáveis da semana anterior, apresentar para cada responsável as colunas **Semana anterior**, **Semana atual** e **Variação (p.p.)**.
+**Conteúdo:** taxa de serviços iniciados de cada responsável, calculada sobre os leads cuja última transição terminal da semana foi para **Serviço iniciado** ou **Perdido**. A atribuição usa o `responsible_user_id` da extração. Quando houver dados comparáveis da semana anterior, apresentar para cada responsável as colunas **Semana anterior**, **Semana atual** e **Variação (p.p.)**.
 
 **Objetivo:** comparar a capacidade de transformar oportunidades em serviços iniciados, sem depender somente do número absoluto de conversões.
 
@@ -167,7 +169,7 @@ O relatório final deve soar como uma análise escrita pessoalmente pelo gestor.
 
 **Exibição:** obrigatória no relatório semanal.
 
-**Conteúdo:** quantidade de pares distintos entre lead com evento e **Usuário responsável** do lead durante a semana, com participação no total. A tabela deve mostrar a participação da semana anterior, a participação da semana atual e a diferença entre elas em uma coluna independente de **Variação (p.p.)**. O autor do evento não define a atribuição.
+**Conteúdo:** quantidade de pares distintos entre lead com evento e responsável indicado em `responsible_user_id` durante a semana, com participação no total. A tabela deve mostrar a participação da semana anterior, a participação da semana atual e a diferença entre elas em uma coluna independente de **Variação (p.p.)**. O autor do evento não define a atribuição.
 
 **Estrutura mínima da tabela:**
 
@@ -181,7 +183,7 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Pergunta respondida:** em quais carteiras de responsáveis houve atividade registrada e como esse volume foi dividido?
 
-**Cuidados:** esta tabela não prova quem executou pessoalmente cada ação, pois outro consultor pode ter ajudado a preencher a ficha ou mudar a etapa. Ela mede atividade nos leads atribuídos pelo campo personalizado. Todas as participações percentuais devem usar o total de pares responsável–lead da respectiva semana como denominador.
+**Cuidados:** esta tabela não prova quem executou pessoalmente cada ação, pois outro consultor pode ter ajudado a preencher a ficha ou mudar a etapa. Ela mede atividade nos leads atribuídos por `responsible_user_id`. Todas as participações percentuais devem usar o total de pares responsável–lead da respectiva semana como denominador.
 
 ### 4.6. Nota metodológica sobre movimentação
 
@@ -197,12 +199,12 @@ Quando for útil comparar também o volume absoluto, podem ser acrescentadas as 
 
 **Exibição:** obrigatória no relatório semanal.
 
-**Conteúdo:** número de leads criados na semana, distribuído por responsável, com participação percentual e comparação com a semana anterior. Para cada responsável, apresentar **Participação anterior**, **Participação atual** e **Variação (p.p.)**. Para o total de novos leads, que é um volume e não uma taxa, apresentar a mudança em quantidade absoluta e, se desejado, a variação percentual relativa em coluna separada claramente identificada.
+**Conteúdo:** número de leads criados na semana, distribuído por responsável, com participação percentual, quantidade de clientes retorno e comparação com a semana anterior. Cliente retorno é sempre parte do total de novos leads. Para cada responsável, apresentar **Participação anterior**, **Participação atual** e **Variação (p.p.)**. Para o total de novos leads e retornos, apresentar mudanças em quantidade absoluta.
 
 **Estrutura recomendada da tabela:**
 
-| Responsável | Novos leads atuais | Participação anterior | Participação atual | Variação (p.p.) |
-|---|---:|---:|---:|---:|
+| Responsável | Novos leads atuais | Clientes retorno | Participação anterior | Participação atual | Variação (p.p.) |
+|---|---:|---:|---:|---:|---:|
 
 **Objetivo:** medir o fluxo de novas oportunidades comerciais e verificar se a aquisição de leads está crescendo, estável ou caindo.
 
@@ -403,7 +405,7 @@ Neste bloco, os resultados acompanham a coorte de leads **criados** no mês e se
 
 **Exibição:** quando houver evidência quantitativa e/ou qualitativa suficiente para descrever tendências.
 
-**Conteúdo:** síntese comparativa de estilos, pontos fortes, riscos e comportamentos observados em cada consultor.
+**Conteúdo:** tabela compacta e síntese curta das diferenças quantitativas sustentadas pelos dados. Não incluir análise de tempo de resposta nem o bloco **Limites de comparação**.
 
 **Objetivo:** orientar acompanhamento, treinamento, divisão de responsabilidades e eventual individualização dos atendimentos.
 

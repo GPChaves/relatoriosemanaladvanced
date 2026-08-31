@@ -8,6 +8,8 @@ Use esta referência somente depois de um comando falhar. Mostre ao usuário o c
 - CSV ausente ou inválido: mostre o caminho esperado e os campos problemáticos; volte à coleta manual.
 - Quantidade de fontes diferente de três: informe os arquivos encontrados e peça a correção da pasta.
 - Fonte inválida: peça PNG/JPG legível ou TXT UTF-8 não vazio, sempre anonimizado.
+- Metadados do atendimento ausentes ou inválidos: peça nome do cliente e número positivo do lead para cada um dos três casos.
+- Avaliação opcional do gestor vazia ou fora de UTF-8: peça correção ou remova o arquivo para continuar sem esse contexto.
 - Hash desatualizado: uma fonte ou análise mudou; gere novamente apenas os artefatos qualitativos da semana.
 
 ## Kommo
@@ -17,12 +19,13 @@ Use esta referência somente depois de um comando falhar. Mostre ao usuário o c
 - HTTP 429 ou erro 5xx: espere apenas o tempo indicado pelo servidor e tente mais uma vez. Se repetir, pare e reporte indisponibilidade.
 - Escopo de histórico de chat ausente: use o CSV manual de tempo de resposta; não estime a métrica.
 - Funil não encontrado: peça o nome correto ou ajuste a configuração, sem escolher outro funil silenciosamente.
-- Campo personalizado `Usuário responsável` ausente ou duplicado: peça a correção do cadastro de campos da Kommo; não use o responsável padrão nem o autor do evento como substituto.
-- Mais de um valor em `Usuário responsável`: identifique o lead informado no erro e peça a correção da ficha antes de executar novamente.
+- `responsible_user_id` ausente, inválido ou sem usuário correspondente: atribua o lead a `Sem usuário responsável`; não use o autor do evento como substituto.
+- Contatos vinculados indisponíveis: não estime clientes retorno por nome ou telefone; reporte a limitação de permissão ou de resposta da Kommo.
 
 ## Exportação XLSX
 
 - Colunas ausentes: liste as colunas exigidas e peça uma nova exportação completa do Kommo.
+- ID do contato ausente: peça um export com uma coluna estável de ID do contato ou use a API; não identifique retorno pelo nome do contato.
 - Data de fechamento ausente: peça que o usuário inclua uma única coluna aceita pelo importador (`Data Fechada`, `Data de fechamento`, `Data fechada` ou `Fechado em`).
 - Lead em `Serviço iniciado` ou `Perdido` sem data de fechamento: identifique as linhas e peça a correção ou nova exportação; não use `Última modificação` como substituta.
 - Semana fecha o mês: use a rota da API; o importador XLSX não produz os consolidados mensais.

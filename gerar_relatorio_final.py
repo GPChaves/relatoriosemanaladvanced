@@ -13,9 +13,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from relatorio import UNASSIGNED_RESPONSIBLE, applicable_month
+from relatorio import (
+    UNASSIGNED_RESPONSIBLE,
+    applicable_month,
+    validate_weekly_new_leads_rows,
+)
 from processar_atendimentos import (
     DEFAULT_INPUT_ROOT as DEFAULT_ATTENDANCE_INPUT_ROOT,
+    DEFAULT_MANAGER_INPUT_ROOT,
     ManualAttendanceError,
     attendance_input_dir,
     process_attendances,
@@ -216,6 +221,13 @@ def validate_outputs(output_root: Path, week_start: date) -> ValidationResult:
                     "A data de 01_identificacao_periodo.csv não corresponde à "
                     f"semana solicitada: {recorded_start!r}."
                 )
+
+    new_leads_path = week_dir / "07_novos_leads_semana.csv"
+    if new_leads_path.is_file():
+        try:
+            validate_weekly_new_leads_rows(read_csv(new_leads_path))
+        except (KeyError, TypeError, ValueError) as exc:
+            invalid.append(f"Novos leads ou clientes retorno inconsistentes: {exc}")
 
     return ValidationResult(
         week_dir=week_dir,
@@ -460,7 +472,12 @@ class KpiGrid(Flowable):
             self.canv.drawString(x + 8, self.height - 38, value[:18])
             self.canv.setFillColor(MUTED)
             self.canv.setFont(FONT, 7.6)
-            self.canv.drawString(x + 8, 8, detail[:34])
+            detail_lines = str(detail).splitlines()[:2]
+            if len(detail_lines) == 1:
+                self.canv.drawString(x + 8, 8, detail_lines[0][:34])
+            else:
+                self.canv.drawString(x + 8, 18, detail_lines[0][:34])
+                self.canv.drawString(x + 8, 8, detail_lines[1][:34])
 
 
 def inline_markup(text: str) -> str:
@@ -645,6 +662,10 @@ def executive_summary(
 
     previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
     current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
+    previous_returning = as_int(leads[0].get("total_clientes_retorno_anterior")) if leads else 0
+    current_returning = as_int(leads[0].get("total_clientes_retorno_atual")) if leads else 0
+    returning_label = "retorno" if current_returning == 1 else "retornos"
+    returning_verb = "foi" if current_returning == 1 else "foram"
     lead_delta = current_leads - previous_leads
     previous_total = sum(as_int(row.get("total_leads_anterior")) for row in conversion)
     current_total = sum(as_int(row.get("total_leads_atual")) for row in conversion)
@@ -664,7 +685,8 @@ def executive_summary(
         (
             f"<b>Novos contatos:</b> {current_leads} leads na semana, "
             f"{abs(lead_delta)} {'a menos' if lead_delta < 0 else 'a mais' if lead_delta > 0 else 'sem alteração'} "
-            f"que os {previous_leads} da semana anterior."
+            f"que os {previous_leads} da semana anterior. Desses, {current_returning} "
+            f"{returning_verb} {returning_label}, ante {previous_returning}."
         ),
         (
             f"<b>Serviços iniciados:</b> {current_services} em "
@@ -691,7 +713,11 @@ def executive_summary(
     )
     flowables.append(Spacer(1, 3 * mm))
     cards = [
-        ("Novos leads", str(current_leads), f"{signed_int(lead_delta)} vs. semana anterior"),
+        (
+            "Novos leads",
+            str(current_leads),
+            f"{current_returning} {returning_label}\n{signed_int(lead_delta)} vs. semana anterior",
+        ),
         ("Serviços iniciados", f"{decimal_br(current_rate)}%", pp(rate_delta)),
         ("Leads perdidos", str(current_lost), f"{signed_int(current_lost - previous_lost)} casos"),
         ("Leads fechados", str(current_total), f"{signed_int(current_total - previous_total)} casos"),
@@ -723,6 +749,8 @@ def add_weekly_comparison(
 
     previous_leads = as_int(leads[0].get("total_novos_leads_anterior")) if leads else 0
     current_leads = as_int(leads[0].get("total_novos_leads_atual")) if leads else 0
+    previous_returning = as_int(leads[0].get("total_clientes_retorno_anterior")) if leads else 0
+    current_returning = as_int(leads[0].get("total_clientes_retorno_atual")) if leads else 0
     previous_services = sum(as_int(row.get("servicos_iniciados_anterior")) for row in conversion)
     current_services = sum(as_int(row.get("servicos_iniciados_atual")) for row in conversion)
     previous_lost = as_int(losses[0].get("total_perdidos_anterior")) if losses else 0
@@ -747,6 +775,12 @@ def add_weekly_comparison(
     )
     overview_rows = [
         ["Novos leads", previous_leads, current_leads, count_change(previous_leads, current_leads)],
+        [
+            "Clientes retorno",
+            previous_returning,
+            current_returning,
+            count_change(previous_returning, current_returning),
+        ],
         ["Leads fechados", previous_closed, current_closed, count_change(previous_closed, current_closed)],
         ["Serviços iniciados", previous_services, current_services, count_change(previous_services, current_services)],
         ["Taxa de serviço iniciado", pct(previous_rate), pct(current_rate), pp(current_rate - previous_rate)],
@@ -824,6 +858,17 @@ def add_consultant_comparison(
         row = leads_by_name.get(name, {})
         values.extend(count_cells(as_int(row.get("novos_leads_anterior")), as_int(row.get("novos_leads_atual"))))
     rows.append(["Novos leads", *values])
+
+    values = []
+    for name in consultants:
+        row = leads_by_name.get(name, {})
+        values.extend(
+            count_cells(
+                as_int(row.get("clientes_retorno_anterior")),
+                as_int(row.get("clientes_retorno_atual")),
+            )
+        )
+    rows.append(["Clientes retorno", *values])
 
     values = []
     for name in consultants:
@@ -1126,7 +1171,7 @@ def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
     canvas.setFillColor(colors.HexColor("#9FB3C5"))
     canvas.setFont(FONT, 8)
     canvas.drawString(20 * mm, 24 * mm, "Relatório de acompanhamento comercial")
-    canvas.drawRightString(width - 20 * mm, 24 * mm, datetime.now().strftime("%d/%m/%Y %H:%M"))
+    canvas.drawRightString(width - 20 * mm, 24 * mm, datetime.now().strftime("%d/%m/%Y"))
     canvas.restoreState()
 
 
@@ -1230,6 +1275,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ATTENDANCE_INPUT_ROOT,
         help="Raiz das pastas semanais com exatamente três atendimentos em imagem ou texto.",
     )
+    parser.add_argument(
+        "--manager-input-root",
+        type=Path,
+        default=DEFAULT_MANAGER_INPUT_ROOT,
+        help="Raiz opcional das avaliações semanais do gestor.",
+    )
     return parser
 
 
@@ -1237,6 +1288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output_root = args.output_root.resolve()
     attendance_root = args.attendance_input_root.resolve()
+    manager_input_root = args.manager_input_root.resolve()
     manual_dir = attendance_input_dir(attendance_root, args.week_start)
     if manual_dir.exists():
         print(f"Pasta manual de atendimentos encontrada: {manual_dir}")
@@ -1244,6 +1296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             artifacts = process_attendances(
                 args.week_start,
                 input_root=attendance_root,
+                manager_input_root=manager_input_root,
                 output_root=output_root,
                 force=args.force,
                 validate_only=args.validate_only,

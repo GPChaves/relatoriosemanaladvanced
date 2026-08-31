@@ -165,6 +165,24 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(args.responsible_source, "responsible-user-id")
 
+    def test_parser_uses_responsible_user_id_by_default(self) -> None:
+        args = relatorio.build_parser().parse_args(
+            ["--week-start", "2026-08-17", "--force"]
+        )
+
+        self.assertEqual(args.responsible_source, "responsible-user-id")
+
+    def test_parser_rejects_custom_responsible_field_source(self) -> None:
+        with self.assertRaises(SystemExit):
+            relatorio.build_parser().parse_args(
+                [
+                    "--week-start",
+                    "2026-08-17",
+                    "--responsible-source",
+                    "custom-field",
+                ]
+            )
+
     def test_validate_only_does_not_query_or_write(self) -> None:
         config = relatorio.KommoConfig(
             base_url="https://example.kommo.com", token="token"
@@ -487,6 +505,7 @@ class LeadPeriodFetchTests(unittest.TestCase):
         self.assertEqual([lead["id"] for lead in leads], [1])
         self.assertEqual(captured["filter[created_at][from]"], int(start.timestamp()))
         self.assertNotIn("filter[updated_at][from]", captured)
+        self.assertIn("contacts", captured["with"])
 
     def test_terminal_event_query_filters_destination_stage(self) -> None:
         captured: list[dict[str, object]] = []
@@ -508,6 +527,45 @@ class LeadPeriodFetchTests(unittest.TestCase):
         self.assertEqual({item["target_status_id"] for item in captured}, {142, 143})
         self.assertTrue(all(item["event_type"] == "lead_status_changed" for item in captured))
         self.assertEqual(len(events), 2)
+
+
+class ReturningCustomerTests(unittest.TestCase):
+    def test_lead_is_returning_when_linked_contact_has_older_lead(self) -> None:
+        lead = {
+            "id": 20,
+            "created_at": 200,
+            "_embedded": {"contacts": [{"id": 7}]},
+        }
+        contacts = {
+            7: {"id": 7, "_embedded": {"leads": [{"id": 10}, {"id": 20}]}}
+        }
+        with (
+            mock.patch.object(
+                relatorio, "fetch_contacts_with_leads", return_value=contacts
+            ),
+            mock.patch.object(
+                relatorio,
+                "fetch_leads_by_ids",
+                return_value={10: {"id": 10, "created_at": 100}},
+            ),
+        ):
+            returning = relatorio.find_returning_lead_ids(mock.Mock(), [lead])
+
+        self.assertEqual(returning, frozenset({20}))
+
+    def test_same_lead_link_does_not_make_customer_returning(self) -> None:
+        lead = {
+            "id": 20,
+            "created_at": 200,
+            "_embedded": {"contacts": [{"id": 7}]},
+        }
+        contacts = {7: {"id": 7, "_embedded": {"leads": [{"id": 20}]}}}
+        with mock.patch.object(
+            relatorio, "fetch_contacts_with_leads", return_value=contacts
+        ):
+            returning = relatorio.find_returning_lead_ids(mock.Mock(), [lead])
+
+        self.assertEqual(returning, frozenset())
 
 
 class WeeklyConversionTests(unittest.TestCase):
@@ -682,6 +740,7 @@ class RemainingConsolidationsTests(unittest.TestCase):
             ],
             lead_details={lead["id"]: lead for lead in [*closed_leads, *created_leads]},
             responsible_field_id=RESPONSIBLE_FIELD_ID,
+            returning_lead_ids=frozenset({21}),
         )
         new_rows = relatorio.build_weekly_new_leads_rows(
             snapshot, date(2026, 8, 17), datetime(2026, 8, 20, tzinfo=self.local_tz)
@@ -690,6 +749,8 @@ class RemainingConsolidationsTests(unittest.TestCase):
             snapshot, date(2026, 8, 17), datetime(2026, 8, 20, tzinfo=self.local_tz)
         )
         self.assertEqual(sum(row["novos_leads_atual"] for row in new_rows), 2)
+        self.assertEqual(sum(row["clientes_retorno_atual"] for row in new_rows), 1)
+        self.assertEqual(new_rows[0]["total_clientes_retorno_atual"], 1)
         self.assertEqual(sum(row["quantidade_atual"] for row in stage_rows), 2)
 
     def test_lost_composition_uses_lost_denominator(self) -> None:

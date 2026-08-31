@@ -73,6 +73,34 @@ class FinalReportValidationTests(unittest.TestCase):
             any("detalhes internos de produção" in problem for problem in result.invalid)
         )
 
+    def test_validation_rejects_returns_above_new_leads(self) -> None:
+        week_start = date(2026, 8, 17)
+        with tempfile.TemporaryDirectory() as directory:
+            output_root = Path(directory)
+            paths = final.expected_output_paths(output_root, week_start)
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".csv":
+                    path.write_text("campo\nvalor\n", encoding="utf-8")
+                else:
+                    path.write_text("## Seção\n\nAnálise objetiva.", encoding="utf-8")
+            week_dir = final.week_output_dir(output_root, week_start)
+            (week_dir / "01_identificacao_periodo.csv").write_text(
+                "data_inicial,data_final\n2026-08-17,2026-08-23\n",
+                encoding="utf-8",
+            )
+            (week_dir / "07_novos_leads_semana.csv").write_text(
+                "novos_leads_anterior,novos_leads_atual,clientes_retorno_anterior,"
+                "clientes_retorno_atual,total_novos_leads_anterior,"
+                "total_novos_leads_atual,total_clientes_retorno_anterior,"
+                "total_clientes_retorno_atual\n1,1,0,2,1,1,0,2\n",
+                encoding="utf-8",
+            )
+
+            result = final.validate_outputs(output_root, week_start)
+
+        self.assertTrue(any("retorno" in problem for problem in result.invalid))
+
     def test_existing_pdf_requires_explicit_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "report.pdf"
@@ -129,7 +157,12 @@ class FinalReportValidationTests(unittest.TestCase):
             week_dir = Path(directory)
             write_csv(
                 week_dir / "07_novos_leads_semana.csv",
-                {"total_novos_leads_anterior": 80, "total_novos_leads_atual": 100},
+                {
+                    "total_novos_leads_anterior": 80,
+                    "total_novos_leads_atual": 100,
+                    "total_clientes_retorno_anterior": 8,
+                    "total_clientes_retorno_atual": 12,
+                },
             )
             write_csv(
                 week_dir / "04_conversao_responsavel.csv",
@@ -155,6 +188,7 @@ class FinalReportValidationTests(unittest.TestCase):
             _, cards = final.executive_summary(week_dir, final.build_styles())
 
         self.assertEqual(cards[1][1], "50,0%")
+        self.assertEqual(cards[0][2], "12 retornos\n+20 vs. semana anterior")
         self.assertEqual(cards[3][0], "Leads fechados")
         self.assertEqual(cards[3][1], "20")
 
@@ -206,8 +240,12 @@ class FinalReportValidationTests(unittest.TestCase):
                     "responsavel_nome": "Ana",
                     "novos_leads_anterior": 10,
                     "novos_leads_atual": 12,
+                    "clientes_retorno_anterior": 2,
+                    "clientes_retorno_atual": 4,
                     "total_novos_leads_anterior": 10,
                     "total_novos_leads_atual": 12,
+                    "total_clientes_retorno_anterior": 2,
+                    "total_clientes_retorno_atual": 4,
                 },
             )
             write_csv(

@@ -130,16 +130,24 @@ WEEKLY_NEW_LEADS_FIELDS = [
     "pipeline_id",
     "pipeline_nome",
     "universo",
+    "metodologia_cliente_retorno",
     "responsavel_id",
     "responsavel_nome",
     "novos_leads_anterior",
     "novos_leads_atual",
+    "clientes_retorno_anterior",
+    "clientes_retorno_atual",
+    "percentual_retorno_anterior",
+    "percentual_retorno_atual",
+    "variacao_retorno_pp",
     "variacao_absoluta_responsavel",
     "participacao_anterior",
     "participacao_atual",
     "variacao_pp",
     "total_novos_leads_anterior",
     "total_novos_leads_atual",
+    "total_clientes_retorno_anterior",
+    "total_clientes_retorno_atual",
     "variacao_total_absoluta",
     "situacao_semana_atual",
     "data_hora_extracao",
@@ -417,6 +425,7 @@ class WeeklySnapshot:
     lead_details: dict[int, dict[str, object]] = field(default_factory=dict)
     responsible_field_id: int | None = None
     responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD
+    returning_lead_ids: frozenset[int] = frozenset()
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
@@ -810,8 +819,10 @@ def fetch_period_leads(
         "filter[pipeline_id][]": pipeline_id,
         f"order[{date_field}]": "asc",
     }
+    with_entities = ["contacts"]
     if include_loss_reason:
-        params["with"] = "loss_reason"
+        with_entities.append("loss_reason")
+    params["with"] = ",".join(with_entities)
     for lead in iter_kommo_collection(client, "/api/v4/leads", "leads", params):
         period_timestamp = lead.get(date_field)
         if not isinstance(period_timestamp, int):
@@ -1008,9 +1019,109 @@ def fetch_leads_by_ids(
     return leads
 
 
+def lead_contact_ids(lead: Mapping[str, object]) -> tuple[int, ...]:
+    embedded = lead.get("_embedded")
+    if not isinstance(embedded, Mapping):
+        return ()
+    contacts = embedded.get("contacts")
+    if not isinstance(contacts, list):
+        return ()
+    return tuple(
+        sorted(
+            {
+                int(contact["id"])
+                for contact in contacts
+                if isinstance(contact, Mapping) and isinstance(contact.get("id"), int)
+            }
+        )
+    )
+
+
+def fetch_contacts_with_leads(
+    client: KommoReadOnlyClient, contact_ids: Iterable[int]
+) -> dict[int, dict[str, object]]:
+    unique_ids = sorted(set(contact_ids))
+    contacts: dict[int, dict[str, object]] = {}
+    for offset in range(0, len(unique_ids), 250):
+        batch = unique_ids[offset : offset + 250]
+        if not batch:
+            continue
+        for contact in iter_kommo_collection(
+            client,
+            "/api/v4/contacts",
+            "contacts",
+            {"filter[id][]": batch, "with": "leads"},
+        ):
+            contact_id = contact.get("id")
+            if isinstance(contact_id, int):
+                contacts[contact_id] = contact
+    return contacts
+
+
+def contact_linked_lead_ids(contact: Mapping[str, object]) -> tuple[int, ...]:
+    embedded = contact.get("_embedded")
+    if not isinstance(embedded, Mapping):
+        return ()
+    leads = embedded.get("leads")
+    if not isinstance(leads, list):
+        return ()
+    return tuple(
+        sorted(
+            {
+                int(lead["id"])
+                for lead in leads
+                if isinstance(lead, Mapping) and isinstance(lead.get("id"), int)
+            }
+        )
+    )
+
+
+def find_returning_lead_ids(
+    client: KommoReadOnlyClient,
+    created_leads: Iterable[Mapping[str, object]],
+) -> frozenset[int]:
+    candidates = [
+        lead
+        for lead in created_leads
+        if isinstance(lead.get("id"), int) and isinstance(lead.get("created_at"), int)
+    ]
+    contact_ids = {
+        contact_id for lead in candidates for contact_id in lead_contact_ids(lead)
+    }
+    contacts = fetch_contacts_with_leads(client, contact_ids)
+    linked_lead_ids = {
+        linked_id
+        for contact in contacts.values()
+        for linked_id in contact_linked_lead_ids(contact)
+    }
+    candidate_by_id = {int(lead["id"]): dict(lead) for lead in candidates}
+    linked_leads = dict(candidate_by_id)
+    missing_linked_ids = linked_lead_ids - set(linked_leads)
+    if missing_linked_ids:
+        linked_leads.update(fetch_leads_by_ids(client, missing_linked_ids))
+
+    returning: set[int] = set()
+    for lead in candidates:
+        lead_id = int(lead["id"])
+        created_at = int(lead["created_at"])
+        for contact_id in lead_contact_ids(lead):
+            contact = contacts.get(contact_id)
+            if contact is None:
+                continue
+            if any(
+                linked_id != lead_id
+                and isinstance(linked_leads.get(linked_id, {}).get("created_at"), int)
+                and int(linked_leads[linked_id]["created_at"]) < created_at
+                for linked_id in contact_linked_lead_ids(contact)
+            ):
+                returning.add(lead_id)
+                break
+    return frozenset(returning)
+
+
 def load_monthly_snapshot(
     month_reference: str,
-    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+    responsible_source: str = RESPONSIBLE_SOURCE_NATIVE,
 ) -> MonthlySnapshot:
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
@@ -1065,7 +1176,7 @@ def load_monthly_snapshot(
 
 def load_weekly_snapshot(
     week_start: date,
-    responsible_source: str = RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+    responsible_source: str = RESPONSIBLE_SOURCE_NATIVE,
 ) -> WeeklySnapshot:
     config = KommoConfig.from_environment()
     client = KommoReadOnlyClient(config)
@@ -1104,6 +1215,7 @@ def load_weekly_snapshot(
             include_loss_reason=True,
         )
     )
+    returning_lead_ids = find_returning_lead_ids(client, created_leads)
     events = fetch_period_events(
         client,
         previous_week_start,
@@ -1150,6 +1262,7 @@ def load_weekly_snapshot(
         lead_details=event_leads,
         responsible_field_id=responsible_field_id,
         responsible_source=responsible_source,
+        returning_lead_ids=returning_lead_ids,
     )
 
 
@@ -1726,6 +1839,8 @@ def build_weekly_new_leads_rows(
 ) -> list[dict[str, object]]:
     previous_counts: Counter[str] = Counter()
     current_counts: Counter[str] = Counter()
+    previous_returning: Counter[str] = Counter()
+    current_returning: Counter[str] = Counter()
     for lead in snapshot.created_leads:
         created_at = lead.get("created_at")
         if not isinstance(created_at, int):
@@ -1739,11 +1854,17 @@ def build_weekly_new_leads_rows(
         )
         if bucket == "anterior":
             previous_counts[responsible_name] += 1
+            if lead.get("id") in snapshot.returning_lead_ids:
+                previous_returning[responsible_name] += 1
         elif bucket == "atual":
             current_counts[responsible_name] += 1
+            if lead.get("id") in snapshot.returning_lead_ids:
+                current_returning[responsible_name] += 1
 
     previous_total = sum(previous_counts.values())
     current_total = sum(current_counts.values())
+    previous_returning_total = sum(previous_returning.values())
+    current_returning_total = sum(current_returning.values())
     rows: list[dict[str, object]] = []
     for responsible_name in sorted(
         set(previous_counts) | set(current_counts),
@@ -1751,6 +1872,8 @@ def build_weekly_new_leads_rows(
     ):
         previous_quantity = previous_counts[responsible_name]
         current_quantity = current_counts[responsible_name]
+        previous_returning_quantity = previous_returning[responsible_name]
+        current_returning_quantity = current_returning[responsible_name]
         previous_share: float | str = (
             round(previous_quantity / previous_total * 100, 1)
             if previous_total
@@ -1766,10 +1889,32 @@ def build_weekly_new_leads_rows(
                 "pipeline_id": snapshot.pipeline.get("id", ""),
                 "pipeline_nome": snapshot.pipeline.get("name", ""),
                 "universo": "leads_criados_no_periodo",
+                "metodologia_cliente_retorno": "vinculos_contato_lead_da_kommo",
                 "responsavel_id": "",
                 "responsavel_nome": responsible_name,
                 "novos_leads_anterior": previous_quantity,
                 "novos_leads_atual": current_quantity,
+                "clientes_retorno_anterior": previous_returning_quantity,
+                "clientes_retorno_atual": current_returning_quantity,
+                "percentual_retorno_anterior": (
+                    round(previous_returning_quantity / previous_quantity * 100, 1)
+                    if previous_quantity
+                    else "N/C"
+                ),
+                "percentual_retorno_atual": (
+                    round(current_returning_quantity / current_quantity * 100, 1)
+                    if current_quantity
+                    else "N/C"
+                ),
+                "variacao_retorno_pp": (
+                    round(
+                        current_returning_quantity / current_quantity * 100
+                        - previous_returning_quantity / previous_quantity * 100,
+                        1,
+                    )
+                    if previous_quantity and current_quantity
+                    else "N/C"
+                ),
                 "variacao_absoluta_responsavel": current_quantity - previous_quantity,
                 "participacao_anterior": previous_share,
                 "participacao_atual": current_share,
@@ -1781,12 +1926,59 @@ def build_weekly_new_leads_rows(
                 ),
                 "total_novos_leads_anterior": previous_total,
                 "total_novos_leads_atual": current_total,
+                "total_clientes_retorno_anterior": previous_returning_total,
+                "total_clientes_retorno_atual": current_returning_total,
                 "variacao_total_absoluta": current_total - previous_total,
                 "situacao_semana_atual": week_status(week_start, extracted_at.date()),
                 "data_hora_extracao": extracted_at.isoformat(timespec="seconds"),
             }
         )
     return rows
+
+
+def validate_weekly_new_leads_rows(rows: Sequence[Mapping[str, object]]) -> None:
+    if not rows:
+        return
+    total_previous_values = {int(row["total_novos_leads_anterior"]) for row in rows}
+    total_current_values = {int(row["total_novos_leads_atual"]) for row in rows}
+    returning_previous_values = {
+        int(row["total_clientes_retorno_anterior"]) for row in rows
+    }
+    returning_current_values = {
+        int(row["total_clientes_retorno_atual"]) for row in rows
+    }
+    if any(
+        len(values) != 1
+        for values in (
+            total_previous_values,
+            total_current_values,
+            returning_previous_values,
+            returning_current_values,
+        )
+    ):
+        raise ValueError("Os totais de novos leads e clientes retorno não são consistentes.")
+    for row in rows:
+        if int(row["clientes_retorno_anterior"]) > int(row["novos_leads_anterior"]):
+            raise ValueError("Clientes retorno anteriores excedem os novos leads.")
+        if int(row["clientes_retorno_atual"]) > int(row["novos_leads_atual"]):
+            raise ValueError("Clientes retorno atuais excedem os novos leads.")
+    total_previous = next(iter(total_previous_values))
+    total_current = next(iter(total_current_values))
+    returning_previous = next(iter(returning_previous_values))
+    returning_current = next(iter(returning_current_values))
+    if sum(int(row["novos_leads_anterior"]) for row in rows) != total_previous:
+        raise ValueError("A soma dos novos leads anteriores não fecha com o total.")
+    if sum(int(row["novos_leads_atual"]) for row in rows) != total_current:
+        raise ValueError("A soma dos novos leads atuais não fecha com o total.")
+    if (
+        sum(int(row["clientes_retorno_anterior"]) for row in rows)
+        != returning_previous
+    ):
+        raise ValueError("A soma dos clientes retorno anteriores não fecha com o total.")
+    if sum(int(row["clientes_retorno_atual"]) for row in rows) != returning_current:
+        raise ValueError("A soma dos clientes retorno atuais não fecha com o total.")
+    if returning_previous > total_previous or returning_current > total_current:
+        raise ValueError("Clientes retorno devem ser um subconjunto dos novos leads.")
 
 
 def build_dynamic_stage_categories(
@@ -2491,11 +2683,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--responsible-source",
-        choices=(RESPONSIBLE_SOURCE_CUSTOM_FIELD, RESPONSIBLE_SOURCE_NATIVE),
-        default=RESPONSIBLE_SOURCE_CUSTOM_FIELD,
+        choices=(RESPONSIBLE_SOURCE_NATIVE,),
+        default=RESPONSIBLE_SOURCE_NATIVE,
         help=(
-            "fonte de atribuição dos leads; o padrão exige o campo personalizado, "
-            "e responsible-user-id usa o responsável nativo mediante autorização explícita"
+            "fonte de atribuição dos leads; usa responsible_user_id e resolve "
+            "o nome pela lista de usuários da Kommo"
         ),
     )
     mode = parser.add_mutually_exclusive_group()
@@ -2708,6 +2900,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 new_lead_rows = build_weekly_new_leads_rows(
                     weekly_snapshot, args.week_start, generated_at
                 )
+                validate_weekly_new_leads_rows(new_lead_rows)
                 write_csv_rows_atomic(
                     weekly_targets["new_leads"],
                     WEEKLY_NEW_LEADS_FIELDS,

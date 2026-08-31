@@ -24,17 +24,36 @@ Exemplo:
 - `02.txt`
 - `03.jpg`
 
+Na mesma pasta, crie `atendimentos.csv` com uma linha por caso:
+
+```text
+atendimento;cliente_nome;lead_id
+1;Nome do cliente;123456
+2;Nome do cliente;123457
+3;Nome do cliente;123458
+```
+
+O nome do cliente e o número do lead serão exibidos no título da respectiva análise.
+
 Cada fonte é enviada separadamente para um agente de análise. Os três agentes trabalham em paralelo e não veem os outros casos. Para uma conversa copiada e colada, grave somente o atendimento correspondente em TXT UTF-8, mantendo a ordem das mensagens e, quando possível, identificando `Cliente:` e `Consultor:`. As saídas ficam em:
 
 `outputs/AAAA/AAAA-MM-DD/generativos/atendimentos/`
 
 O arquivo consolidado usado pelo PDF é `04_16_amostragem_qualitativa.md`.
 
-As fontes originais não entram no PDF. Antes de salvá-las, recorte, cubra ou remova nome, telefone, placa, endereço e qualquer outro dado pessoal que não seja necessário para a análise.
+As fontes originais não entram no PDF. Antes de salvá-las, recorte, cubra ou remova telefone, placa, endereço e qualquer outro dado pessoal que não seja necessário para a análise. O nome informado no CSV será mantido no título.
 
 ## Análise por IA
 
 Os scripts não chamam a API da OpenAI. A skill `gerar-relatorio-comercial` cria um subagente Codex isolado para cada fonte e outro para a consolidação. Assim, cada caso recebe somente sua própria imagem ou transcrição e o prompt correspondente.
+
+## Avaliação opcional do gestor
+
+Se quiser orientar a leitura dos atendimentos sem inserir um texto pronto no relatório, copie o modelo para:
+
+`entradas_manuais/avaliacao_gestor/AAAA-MM-DD/avaliacao.md`
+
+Registre percepções gerais, observações por consultor ou casos específicos. A ausência desse arquivo não bloqueia o relatório. Quando existir, ele complementa as hipóteses e recomendações dos subagentes, sem ser citado nem copiado automaticamente.
 
 ## Execução
 
