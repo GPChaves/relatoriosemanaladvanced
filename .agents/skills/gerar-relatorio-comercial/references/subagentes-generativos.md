@@ -10,12 +10,27 @@ Crie cada agente com `fork_turns="none"`. O envelope deve conter somente:
 - o caminho absoluto do prompt;
 - os caminhos absolutos das fontes declaradas no manifesto;
 - o caminho absoluto e exclusivo da saída;
+- o caminho absoluto da política compartilhada indicada por `shared_policy` no manifesto;
 - a instrução de não ler outras semanas nem outras fontes.
 - a instrução de escrever como análise autoral do gestor, sem expor arquivos internos, coleta manual, agentes, IA, automação, scripts ou APIs.
 
 Agentes não devem compartilhar uma saída. Execute em ondas compatíveis com os slots disponíveis e espere a conclusão de toda onda antes de validar seus arquivos.
 
 Peça textos enxutos: tabelas Markdown devem substituir enumerações repetitivas sempre que os dados forem comparáveis; a prosa deve se limitar às conclusões e ações que a tabela não comunica sozinha.
+
+## Política comum de evidência e voz
+
+Todo agente deve ler `POLITICA_REDACAO` antes das fontes. Ela controla a voz autoral, o tom profissional natural 3/10, a relevância das limitações e o princípio de que ausência de evidência não comprova falha.
+
+Para as análises de atendimento, reforce no envelope que conteúdo inacessível é neutro. Uma pergunta seguida por áudio, imagem, anexo ou documento não examinável não autoriza crítica, desconto de nota, classificação negativa nem recomendação para “responder melhor”. A conclusão só pode mudar se houver evidência posterior explícita de dúvida persistente. O agente deve considerar a sequência inteira, sem presumir o conteúdo inacessível.
+
+Antes de aceitar uma saída, confira:
+
+- toda crítica e recomendação aponta para um fato observável;
+- limitações aparecem apenas quando mudam a leitura e trazem um motivo concreto;
+- não há referência a “material recebido”, “dados fornecidos” ou ao processo de geração;
+- frases impessoais e burocráticas foram convertidas em construções diretas e naturais;
+- nenhuma incerteza relevante foi apagada ou transformada em certeza.
 
 ## Atendimentos
 
@@ -39,12 +54,13 @@ Execute `monthly` apenas quando o validador quantitativo indicar que o mês est�
 
 ```text
 Escreva apenas ARQUIVO_SAIDA.
-Leia integralmente PROMPT e somente as FONTES listadas.
+Leia integralmente PROMPT e POLITICA_REDACAO, e somente as FONTES listadas.
 PASTA_CSV é a pasta semanal informada abaixo.
 Não use fatos da conversa, de outras semanas ou conhecimento externo.
 Não mencione arquivos internos, coleta manual, agentes, IA, automação, scripts ou APIs no texto entregue.
+Não trate ausência de evidência como falha e não inclua ressalvas que não mudem a interpretação.
 Substitua a saída existente e não crie arquivos alternativos.
 Ao terminar, confirme o caminho gravado e uma validação curta; não cole o texto inteiro na resposta.
 ```
 
-Se um agente falhar, corrija o problema concreto e repita no máximo uma vez em outro agente limpo. Nunca complete o texto faltante no agente principal.
+Se um agente falhar, inclusive na validação editorial, informe no novo envelope o problema concreto e repita no máximo uma vez em outro agente limpo. Nunca complete o texto faltante no agente principal nem tente esconder uma conclusão sem evidência com mera substituição de palavras.

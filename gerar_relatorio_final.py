@@ -18,6 +18,10 @@ from relatorio import (
     applicable_month,
     validate_weekly_new_leads_rows,
 )
+from narrative_policy import (
+    PRODUCTION_PROVENANCE_MARKERS,
+    narrative_policy_violations,
+)
 from processar_atendimentos import (
     DEFAULT_INPUT_ROOT as DEFAULT_ATTENDANCE_INPUT_ROOT,
     DEFAULT_MANAGER_INPUT_ROOT,
@@ -32,6 +36,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import (
@@ -91,27 +96,21 @@ MANAGEMENT_NARRATIVES = (
     ("9.", "Pontos de melhoria no cadastro", "04_15_auditoria_crm.md"),
     ("10.", "Revisão da qualidade dos atendimentos", "04_16_amostragem_qualitativa.md"),
 )
-DELIVERY_PROVENANCE_MARKERS = (
-    "informado manualmente",
-    "manualmente",
-    "fonte manual",
-    "entrada manual",
-    "automação",
-    "automatizado",
-    "inteligência artificial",
-    "ia generativa",
-    "subagente",
-    "agente de ia",
-    "gerado por ia",
-    "prompt",
-    "via api",
-    "api da kommo",
-    "xlsx",
-    "arquivo interno",
-    ".csv",
-    ".md",
-    "script python",
+CASE_COMMENTARY_FILE = "04_19_comentario_caso_especifico.md"
+CASE_EVIDENCE_FILE = "lead_66384480.png"
+DEFAULT_GOOGLE_ADS_INPUT_ROOT = ROOT / "entradas_manuais" / "google_ads"
+GOOGLE_ADS_FILENAME = "google_ads.csv"
+GOOGLE_ADS_INDICATORS = (
+    "Impressões",
+    "Cliques",
+    "CTR",
+    "Conversões",
+    "Custo/conversão",
+    "Taxa de conversão",
+    "Custo",
 )
+# Compatibilidade para integrações que consultavam a constante anterior.
+DELIVERY_PROVENANCE_MARKERS = PRODUCTION_PROVENANCE_MARKERS
 
 NAVY = colors.HexColor("#102A43")
 NAVY_2 = colors.HexColor("#183B56")
@@ -167,7 +166,17 @@ def expected_output_paths(output_root: Path, week_start: date) -> tuple[Path, ..
     if closing_month_for_week(week_start):
         names.extend(week_dir / name for name in MONTHLY_CSV_FILES)
         names.extend(week_dir / "generativos" / name for name in MONTHLY_MARKDOWN_FILES)
+    if case_evidence_path(week_start).is_file():
+        names.append(week_dir / "generativos" / CASE_COMMENTARY_FILE)
     return tuple(names)
+
+
+def case_evidence_path(week_start: date) -> Path:
+    return DEFAULT_MANAGER_INPUT_ROOT / week_start.isoformat() / CASE_EVIDENCE_FILE
+
+
+def google_ads_input_path(week_start: date) -> Path:
+    return DEFAULT_GOOGLE_ADS_INPUT_ROOT / week_start.isoformat() / GOOGLE_ADS_FILENAME
 
 
 def validate_outputs(output_root: Path, week_start: date) -> ValidationResult:
@@ -199,17 +208,16 @@ def validate_outputs(output_root: Path, week_start: date) -> ValidationResult:
                 continue
             if not content.startswith("## "):
                 invalid.append(f"Markdown sem título de seção: {path}")
-            content_key = content.casefold()
-            exposed_markers = [
-                marker
-                for marker in DELIVERY_PROVENANCE_MARKERS
-                if marker in content_key
-            ]
-            if exposed_markers:
-                invalid.append(
-                    "Texto expõe detalhes internos de produção em "
-                    f"{path}: {', '.join(exposed_markers)}"
-                )
+            policy_violations = narrative_policy_violations(content)
+            for violation in policy_violations:
+                if violation.startswith("expõe bastidores"):
+                    invalid.append(
+                        f"Texto expõe detalhes internos de produção em {path}: {violation}"
+                    )
+                else:
+                    invalid.append(
+                        f"Texto fora da política editorial em {path}: {violation}"
+                    )
 
     identification = week_dir / "01_identificacao_periodo.csv"
     if identification.is_file():
@@ -228,6 +236,13 @@ def validate_outputs(output_root: Path, week_start: date) -> ValidationResult:
             validate_weekly_new_leads_rows(read_csv(new_leads_path))
         except (KeyError, TypeError, ValueError) as exc:
             invalid.append(f"Novos leads ou clientes retorno inconsistentes: {exc}")
+
+    google_ads_path = google_ads_input_path(week_start)
+    if google_ads_path.is_file():
+        try:
+            read_google_ads_input(google_ads_path)
+        except (OSError, UnicodeError, csv.Error, ValueError) as exc:
+            invalid.append(f"Dados do Google Ads inválidos: {exc}")
 
     return ValidationResult(
         week_dir=week_dir,
@@ -253,6 +268,34 @@ def confirm_overwrite(path: Path, input_fn=input) -> bool:
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def read_google_ads_input(path: Path) -> tuple[list[dict[str, str]], str, str]:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter=";"))
+    required = {"periodo_inicio", "periodo_fim", "indicador", "valor", "diferenca"}
+    if not rows or not required.issubset(rows[0]):
+        raise ValueError("o arquivo deve conter período, indicador, valor e diferença")
+    by_indicator = {str(row.get("indicador") or "").strip(): row for row in rows}
+    if set(by_indicator) != set(GOOGLE_ADS_INDICATORS) or len(rows) != len(GOOGLE_ADS_INDICATORS):
+        raise ValueError("a tabela deve conter exatamente os sete indicadores esperados")
+    periods = {
+        (
+            str(row.get("periodo_inicio") or "").strip(),
+            str(row.get("periodo_fim") or "").strip(),
+        )
+        for row in rows
+    }
+    if len(periods) != 1:
+        raise ValueError("todos os indicadores devem usar o mesmo período")
+    period_start, period_end = periods.pop()
+    date.fromisoformat(period_start)
+    date.fromisoformat(period_end)
+    ordered = [by_indicator[indicator] for indicator in GOOGLE_ADS_INDICATORS]
+    for row in ordered:
+        if not str(row.get("valor") or "").strip():
+            raise ValueError(f"valor ausente para {row.get('indicador', 'indicador')}")
+    return ordered, period_start, period_end
 
 
 def short_name(value: str) -> str:
@@ -478,6 +521,52 @@ class KpiGrid(Flowable):
             else:
                 self.canv.drawString(x + 8, 18, detail_lines[0][:34])
                 self.canv.drawString(x + 8, 8, detail_lines[1][:34])
+
+
+class CaseEvidenceImage(Flowable):
+    """Renderiza a evidência preservada e oculta o telefone no canto inferior esquerdo."""
+
+    def __init__(self, path: Path, width: float = CONTENT_WIDTH):
+        super().__init__()
+        self.path = path
+        self.image = ImageReader(str(path))
+        self.source_width, self.source_height = self.image.getSize()
+        self.width = width
+        self.height = width * self.source_height / self.source_width
+
+    def wrap(self, avail_width: float, avail_height: float) -> tuple[float, float]:
+        return min(self.width, avail_width), self.height
+
+    def draw(self) -> None:
+        self.canv.saveState()
+        self.canv.drawImage(
+            self.image,
+            0,
+            0,
+            width=self.width,
+            height=self.height,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+        scale_x = self.width / self.source_width
+        scale_y = self.height / self.source_height
+        redact_x = 55 * scale_x
+        redact_y = 0
+        redact_width = 310 * scale_x
+        redact_height = 34 * scale_y
+        self.canv.setFillColor(NAVY)
+        self.canv.rect(redact_x, redact_y, redact_width, redact_height, fill=1, stroke=0)
+        self.canv.setFillColor(WHITE)
+        self.canv.setFont(FONT_BOLD, 5.5)
+        self.canv.drawCentredString(
+            redact_x + redact_width / 2,
+            redact_y + max(3.5, redact_height / 2 - 1.5),
+            "DADO PESSOAL OCULTADO",
+        )
+        self.canv.setStrokeColor(LINE)
+        self.canv.setLineWidth(0.6)
+        self.canv.rect(0, 0, self.width, self.height, fill=0, stroke=1)
+        self.canv.restoreState()
 
 
 def inline_markup(text: str) -> str:
@@ -1034,7 +1123,13 @@ def add_monthly_section(
 
     distribution = read_csv(week_dir / "02_distribuicao_mensal_responsavel.csv")
     global_rows = read_csv(week_dir / "03_numeros_globais_etapas.csv")
-    responsible_names = [row.get("responsavel_nome", "Não identificado") for row in distribution]
+    all_responsible_names = [row.get("responsavel_nome", "Não identificado") for row in distribution]
+    responsible_names = [
+        name
+        for name in all_responsible_names
+        if name != UNASSIGNED_RESPONSIBLE
+        and not label_key(name).startswith("advanced mecanica")
+    ]
     responsible_totals = {
         row.get("responsavel_nome", "Não identificado"): as_int(row.get("quantidade_leads"))
         for row in distribution
@@ -1050,12 +1145,17 @@ def add_monthly_section(
     visible_categories = [
         category
         for category in category_order
-        if sum(matrix[(category, responsible)] for responsible in responsible_names)
+        if sum(matrix[(category, responsible)] for responsible in all_responsible_names)
     ]
     total_month = sum(responsible_totals.values())
+    unassigned_total = sum(
+        responsible_totals.get(name, 0)
+        for name in all_responsible_names
+        if name not in responsible_names
+    )
     stage_matrix_rows: list[list[object]] = []
     for category in visible_categories:
-        category_total = sum(matrix[(category, responsible)] for responsible in responsible_names)
+        category_total = sum(matrix[(category, responsible)] for responsible in all_responsible_names)
         cells: list[str] = []
         for responsible in responsible_names:
             amount = matrix[(category, responsible)]
@@ -1090,6 +1190,14 @@ def add_monthly_section(
             [first_width] + [other_width] * (len(stage_headers) - 1),
         )
     )
+    if unassigned_total:
+        story.append(
+            Paragraph(
+                f"{unassigned_total} desfechos do mês foram registrados sem consultor responsável. "
+                "Eles indicam falha de preenchimento e foram excluídos da comparação individual.",
+                styles["note"],
+            )
+        )
     add_source(story, styles, "02_distribuicao_mensal_responsavel.csv", "03_numeros_globais_etapas.csv")
 
     monthly = read_csv(week_dir / "13_analise_quantitativa_mes.csv")
@@ -1126,6 +1234,58 @@ def add_management_narratives(
         add_section_title(story, styles, f"{number} {title}")
         story.extend(markdown_flowables(load_markdown(week_dir, filename), styles))
         add_source(story, styles, filename)
+
+    evidence_path = DEFAULT_MANAGER_INPUT_ROOT / week_dir.name / CASE_EVIDENCE_FILE
+    commentary_path = week_dir / "generativos" / CASE_COMMENTARY_FILE
+    if evidence_path.is_file() and commentary_path.is_file():
+        story.append(PageBreak())
+        add_section_title(story, styles, "11. Comentário de caso específico")
+        story.extend(markdown_flowables(commentary_path.read_text(encoding="utf-8"), styles))
+        story.append(Spacer(1, 2 * mm))
+        story.append(
+            Paragraph(
+                "Registro do lead 66384480. O telefone foi ocultado para preservar o dado pessoal.",
+                styles["note"],
+            )
+        )
+        story.append(Spacer(1, 1.5 * mm))
+        story.append(CaseEvidenceImage(evidence_path))
+
+
+def add_google_ads_section(
+    story: list[Flowable], week_start: date, styles: dict[str, ParagraphStyle]
+) -> None:
+    path = google_ads_input_path(week_start)
+    if not path.is_file():
+        return
+    rows, period_start, period_end = read_google_ads_input(path)
+    story.append(PageBreak())
+    add_section_title(story, styles, "Desempenho Google Ads no mesmo período")
+    table_rows = [
+        [
+            row["indicador"],
+            row["valor"],
+            f"({row['diferenca']})" if row.get("diferenca", "").strip() else "—",
+        ]
+        for row in rows
+    ]
+    story.append(
+        table_flowable(
+            ["Indicador", "Resultado", "Diferença"],
+            table_rows,
+            styles,
+            [78 * mm, 45 * mm, 45 * mm],
+        )
+    )
+    story.append(Spacer(1, 5 * mm))
+    story.append(
+        Paragraph(
+            "Os valores entre parênteses mostram a diferença em relação aos 14 dias "
+            "anteriores ao período analisado. Os dados da tabela cobrem "
+            f"{human_date(period_start)} a {human_date(period_end)}.",
+            styles["note"],
+        )
+    )
 
 
 def draw_cover(canvas, doc, identification: dict[str, str]) -> None:
@@ -1215,6 +1375,7 @@ def generate_pdf(week_dir: Path, output_path: Path, week_start: date) -> None:
     if closing_month_for_week(week_start):
         add_monthly_section(story, week_dir, styles)
     add_management_narratives(story, week_dir, styles)
+    add_google_ads_section(story, week_start, styles)
 
     temp_path = output_path.with_name(output_path.name + ".tmp")
     temp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1273,7 +1434,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--attendance-input-root",
         type=Path,
         default=DEFAULT_ATTENDANCE_INPUT_ROOT,
-        help="Raiz das pastas semanais com exatamente três atendimentos em imagem ou texto.",
+        help="Raiz das pastas semanais com três atendimentos, ou quatro com amostra extra, em imagem ou texto.",
     )
     parser.add_argument(
         "--manager-input-root",
@@ -1304,7 +1465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (ManualAttendanceError, OSError, ValueError) as exc:
             print(f"Erro nos atendimentos manuais: {exc}", file=sys.stderr)
             return 2
-        print(f"Artefatos externos dos três atendimentos validados: {artifacts.analysis_dir}")
+        print(f"Artefatos externos dos atendimentos validados: {artifacts.analysis_dir}")
     result = validate_outputs(output_root, args.week_start)
     print(f"Pasta verificada: {result.week_dir}")
     print(f"Arquivos obrigatórios: {len(result.expected)}")

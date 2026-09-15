@@ -6,6 +6,7 @@
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 - `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -26,11 +27,16 @@ Produza a seção `## Análise por consultor`, com uma subseção para cada cons
 - não transforme volume de movimentações em prova de qualidade do atendimento;
 - não penalize automaticamente ciclos de venda mais longos;
 - não crie ranking nem atribua comportamento recorrente com base em uma única semana;
-- se o tempo de resposta estiver indisponível, declare isso em uma frase e não estime valores.
+- se o tempo de resposta estiver indisponível, não estime valores; mencione a limitação somente quando ela mudar a interpretação ou uma decisão.
+
+`Advanced Mecânica` é uma conta administrativa, não um consultor. Registros atribuídos a ela,
+sem responsável ou com responsável não resolvido devem aparecer apenas em uma nota curta de
+qualidade de cadastro. Não calcule conversão, não crie subseção e não proponha melhoria de
+desempenho para essa conta. A análise individual deve conter somente Milena e Vitor.
 
 O texto deve ser executivo, direto e semelhante em profundidade ao PDF, mas o PDF é somente referência editorial. Não copie nem reutilize números do PDF.
 
-Finalize com uma nota curta sobre denominadores e maturação. Não repita todas as tabelas dos CSVs.
+Inclua uma nota curta sobre denominadores ou maturação somente quando ela for indispensável para interpretar os resultados. Não repita todas as tabelas dos CSVs.
 
 ## Público e linguagem
 

@@ -6,6 +6,7 @@
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 - `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -27,11 +28,11 @@ Para cada diferença relevante:
 
 - informe a base numérica;
 - explique uma ou mais hipóteses plausíveis;
-- diga qual evidência adicional seria necessária para confirmar a interpretação;
+- quando a incerteza mudar uma decisão, diga de forma objetiva o que precisaria ser confirmado;
 - não confunda usuário que movimentou o CRM com pessoa que conduziu a negociação;
 - não crie ranking qualitativo;
 - não atribua estilo, conhecimento técnico, proatividade ou qualidade de comunicação sem amostra de conversas;
-- trate o tamanho desigual das carteiras e a maturação como limitações.
+- trate o tamanho desigual das carteiras e a maturação como limitações somente quando alterarem a comparação em questão.
 
 Encerre com `### O que acompanhar`, usando no máximo três itens objetivos.
 

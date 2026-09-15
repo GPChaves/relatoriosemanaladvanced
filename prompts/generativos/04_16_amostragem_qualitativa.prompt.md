@@ -6,20 +6,24 @@
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 - `AVALIACAO_GESTOR`: opcional; observações do gestor para complementar a consolidação.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
 Antes de qualquer outra ação, procure estas três análises individuais:
 
-- `PASTA_CSV/generativos/atendimentos/01_analise.md`
-- `PASTA_CSV/generativos/atendimentos/02_analise.md`
-- `PASTA_CSV/generativos/atendimentos/03_analise.md`
+- todas as análises individuais listadas no envelope, normalmente
+  `PASTA_CSV/generativos/atendimentos/01_analise.md` a `03_analise.md`;
+- quando houver uma quarta amostra explicitamente informada, inclua também
+  `PASTA_CSV/generativos/atendimentos/04_analise.md`.
 
-Se as três existirem, elas já foram produzidas por agentes independentes, um por fonte de atendimento. Nesse caso, não volte a analisar os atendimentos. Reúna o conteúdo, nesta ordem, sob o título `## Amostragem qualitativa dos atendimentos`. Preserve em cada bloco o título original `## Atendimento — NOME DO CLIENTE — Lead NÚMERO`, rebaixando-o para `###` para manter a hierarquia do documento. Abra a seção com uma frase curta avisando que três casos são uma amostra e não representam todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os três arquivos individuais.
+As análises já foram produzidas por agentes independentes, uma por fonte de atendimento. Não volte a analisar as fontes. Reúna todas as análises listadas no envelope, na ordem, sob o título `## Amostragem qualitativa dos atendimentos`. Preserve em cada bloco o título original `## Atendimento — NOME DO CLIENTE — Lead NÚMERO`, rebaixando-o para `###` para manter a hierarquia do documento. Abra a seção com uma frase curta informando a quantidade de casos e avisando que a amostra não representa todos os atendimentos. Essa consolidação deve substituir `ARQUIVO_SAIDA` e nunca substituir os arquivos individuais.
 
 Quando `AVALIACAO_GESTOR` existir, use-a apenas como complemento interpretativo: ela pode orientar ênfases, hipóteses e recomendações, mas não deve ser copiada, citada nem apresentada como uma fonte separada. Não diga que houve uma avaliação adicional. Quando uma observação não puder ser sustentada pelas análises dos casos, trate-a no máximo como hipótese de acompanhamento; em caso de conflito, preserve o que foi observado nos atendimentos.
 
 O texto consolidado deve soar como avaliação autoral do gestor. Não mencione prompts, agentes, inteligência artificial, automação, scripts, APIs, arquivos internos nem a forma usada para preparar as análises.
+
+Não fortaleça as conclusões das análises individuais. Remova qualquer crítica, nota ou recomendação baseada apenas na falta de acesso a áudio, imagem, anexo, documento ou outro conteúdo. Uma pergunta seguida por conteúdo inacessível não prova falta de resposta. Só registre dúvida persistente quando a análise individual trouxer evidência posterior explícita; não presuma o conteúdo inacessível.
 
 Se apenas uma ou duas análises individuais existirem, não produza uma consolidação parcial. Informe que faltam análises e preserve os arquivos individuais existentes.
 
@@ -29,11 +33,11 @@ Verifique os arquivos disponíveis em `PASTA_CSV`. Uma análise qualitativa só 
 
 Os CSVs agregados de métricas não bastam para avaliar clareza da comunicação, domínio técnico, tratamento de objeções, defesa de preço, pressão comercial ou qualidade de follow-up.
 
-Se não houver fonte qualitativa adequada, produza:
+Se não houver fonte qualitativa adequada e essa ausência for relevante para a leitura, produza:
 
 `## Amostragem qualitativa dos atendimentos`
 
-seguida de uma nota curta explicando que a seção está indisponível, o dado faltante e o formato mínimo necessário para habilitá-la no futuro. Inclua uma lista dos campos mínimos: identificador interno anonimizado, consultor, resultado, contexto resumido, timestamps, mensagens anonimizadas e classificação no CRM.
+seguida de uma nota curta, em voz autoral, explicando exatamente o que não pode ser aferido e o motivo. Não descreva a base como material recebido nem inclua uma lista genérica de dados desejáveis.
 
 Se houver fonte adequada, analise somente os casos fornecidos, anonimize dados pessoais, descreva pontos positivos e oportunidades por caso e trate a amostra como indício, não como regra geral.
 

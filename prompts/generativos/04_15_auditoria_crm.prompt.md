@@ -5,6 +5,7 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -18,12 +19,16 @@ Produza `## Auditoria de uso do CRM` somente até o nível sustentado pelos dado
 
 Procure sinais quantitativos de qualidade de cadastro ou operação, como:
 
-- perdas sem motivo ou com motivo genérico;
 - proporção relevante de eventos sem usuário atribuído;
 - diferenças entre movimentação e responsabilidade que exijam investigação;
 - concentração inesperada em etapas ou motivos de perda.
 
-Não afirme que um lead específico foi classificado incorretamente sem registro individual ou conversa que comprove isso. Não invente exemplos, capturas, IDs ou falas. Quando os CSVs permitirem apenas levantar um risco, use a formulação `sinal para auditoria`, nunca `erro confirmado`.
+Não recomende revisão, detalhamento ou substituição do motivo de perda `Outro`, nem use esse
+motivo como sinal de auditoria. Esse ponto já está em tratamento e não deve reaparecer como
+prioridade. Perdas sem motivo podem ser mencionadas apenas se forem relevantes por si só, sem
+agrupá-las com `Outro`.
+
+Não afirme que um lead específico foi classificado incorretamente sem registro individual ou conversa que comprove isso. Não invente exemplos, capturas, IDs ou falas. Quando os números permitirem apenas levantar um risco, use a formulação `sinal para auditoria`, nunca `erro confirmado`. Não crie crítica ou verificação recomendada para preencher a estrutura: cada item precisa de um sinal observável e relevante.
 
 Estruture em:
 

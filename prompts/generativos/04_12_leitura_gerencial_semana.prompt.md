@@ -6,6 +6,7 @@
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 - `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -22,10 +23,10 @@ Escolha de 3 a 5 insights realmente acionáveis. Para cada insight:
 1. comece com uma frase em negrito que declare o fato principal;
 2. apresente os números essenciais e a base de comparação;
 3. explique o possível significado, deixando claro quando for hipótese;
-4. registre a limitação que pode alterar a interpretação;
-5. recomende uma verificação, correção ou acompanhamento concreto.
+4. quando existir, registre somente a limitação que realmente pode alterar a interpretação;
+5. recomende uma verificação, correção ou acompanhamento somente quando os dados demonstrarem essa necessidade.
 
-Priorize mudanças em volume de novos leads, clientes retorno, conversão, distribuição entre consultores, movimentação, etapas e composição das perdas. Não repita todas as tabelas. Não atribua automaticamente variações do CRM a campanhas, site, WhatsApp ou desempenho individual. Quando uma causa depender de fonte externa, diga exatamente o que deve ser verificado.
+Priorize mudanças em volume de novos leads, clientes retorno, conversão, distribuição entre consultores, movimentação, etapas e composição das perdas. Não repita todas as tabelas. Não atribua automaticamente variações do CRM a campanhas, site, WhatsApp ou desempenho individual. Não proponha verificações por hábito: quando uma causa depender de outra fonte e essa incerteza mudar a decisão, diga de forma objetiva o que precisa ser confirmado.
 
 Use o PDF somente para calibrar tom e profundidade. Os fatos e números devem vir exclusivamente dos CSVs. Se uma métrica estiver indisponível, não estime.
 

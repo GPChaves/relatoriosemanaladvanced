@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "shared_policy": "_politica_redacao_e_evidencia.md",
   "weekly": [
     {
       "id": "04_08",
@@ -40,6 +41,17 @@
       "prompt": "04_18_limitacoes_proximos_passos.prompt.md",
       "output": "04_18_limitacoes_proximos_passos.md",
       "inputs": ["*.csv"]
+    },
+    {
+      "id": "04_19",
+      "manager_context": true,
+      "prompt": "04_19_comentario_caso_especifico.prompt.md",
+      "output": "04_19_comentario_caso_especifico.md",
+      "inputs": [],
+      "manual_inputs": [
+        "entradas_manuais/avaliacao_gestor/{week_start}/avaliacao.md",
+        "entradas_manuais/avaliacao_gestor/{week_start}/lead_66384480.png"
+      ]
     }
   ],
   "attendance": {

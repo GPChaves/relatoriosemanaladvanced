@@ -5,6 +5,7 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -27,7 +28,9 @@ O texto deve:
 - mencionar distribuição mensal por responsável somente quando ela trouxer implicação útil;
 - distinguir quantidade, taxa e variação em pontos percentuais;
 - tratar a última semana com cautela por maturação, mesmo quando o período calendário já estiver completo;
-- reconhecer a ausência de histórico de outros meses para conclusões de sazonalidade.
+- mencionar a ausência de histórico de outros meses somente se uma conclusão relevante depender de sazonalidade;
+- não recomendar revisão, detalhamento ou substituição do motivo de perda `Outro`; esse tema já
+  está em tratamento e não deve ser apresentado como nova prioridade.
 
 O PDF é referência editorial, não fonte numérica. Use somente os CSVs atuais.
 

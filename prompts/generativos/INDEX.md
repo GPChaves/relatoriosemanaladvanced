@@ -4,7 +4,7 @@ Este diretório contém um prompt autossuficiente para cada seção generativa d
 
 ## Contrato de execução
 
-Os caminhos da semana não ficam gravados nos prompts. O executor fornece a cada agente, no envelope da tarefa, a pasta dos CSVs, o arquivo de saída e uma referência editorial opcional. O arquivo `manifest.json` relaciona cada prompt às entradas e à saída estável.
+Os caminhos da semana não ficam gravados nos prompts. O executor fornece a cada agente, no envelope da tarefa, a pasta dos CSVs, o arquivo de saída, a política compartilhada indicada por `shared_policy` e uma referência editorial opcional. O arquivo `manifest.json` relaciona cada prompt às entradas e à saída estável.
 
 Cada texto deve ser produzido por um agente com contexto limpo. O agente lê somente o prompt e as fontes declaradas para sua tarefa. Todos os números e conclusões devem vir dos CSVs fornecidos.
 
@@ -25,7 +25,7 @@ Cada texto deve ser produzido por um agente com contexto limpo. O agente lê som
 ## Como regenerar
 
 1. Leia `manifest.json` e selecione as tarefas semanais, qualitativas e, quando aplicável, mensais.
-2. Crie um agente limpo por texto e forneça os caminhos absolutos de suas entradas e saída.
+2. Crie um agente limpo por texto e forneça os caminhos absolutos da política compartilhada, de suas entradas e da saída.
 3. Mantenha o nome estável do arquivo de saída. Não acrescente datas, versões, `(1)` ou timestamps.
 4. Substitua integralmente uma saída anterior da mesma semana.
 5. Para a seção 4.16, analise cada imagem ou transcrição em um agente isolado antes de criar a consolidação em um quarto agente limpo.
@@ -35,6 +35,10 @@ Cada texto deve ser produzido por um agente com contexto limpo. O agente lê som
 - Usar somente fatos presentes nos CSVs configurados.
 - Usar o PDF apenas como referência editorial, nunca como fonte de valores.
 - Não atribuir causalidade sem evidência; formular hipóteses como hipóteses.
+- Tratar conteúdo inacessível como neutro: não concluir sucesso nem falha sem evidência observável.
+- Não descontar pontos, classificar negativamente nem recomendar correção para uma falha apenas possível.
+- Mencionar limitações somente quando mudarem a interpretação ou a decisão, sempre com motivo concreto e na voz de quem assina.
+- Manter tom profissional e objetivo, com naturalidade leve no nível 3/10.
 - Distinguir volumes absolutos, percentuais e pontos percentuais.
 - Considerar maturação dos leads, semanas parciais, tamanho da amostra e metodologia.
 - Não expor token, telefone, nome de cliente, conteúdo de mensagem ou outro dado pessoal.

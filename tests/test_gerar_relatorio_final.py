@@ -8,6 +8,25 @@ import gerar_relatorio_final as final
 
 
 class FinalReportValidationTests(unittest.TestCase):
+    def test_google_ads_input_preserves_order_period_and_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "google_ads.csv"
+            path.write_text(
+                "periodo_inicio;periodo_fim;indicador;valor;diferenca\n"
+                "2026-08-23;2026-09-05;Impressões;33.135;\n"
+                "2026-08-23;2026-09-05;Cliques;816;+145\n"
+                "2026-08-23;2026-09-05;CTR;2,46%;-0,37\n"
+                "2026-08-23;2026-09-05;Conversões;214;+65\n"
+                "2026-08-23;2026-09-05;Custo/conversão;R$4,06;-3,54\n"
+                "2026-08-23;2026-09-05;Taxa de conversão;26,23%;+4,02\n"
+                "2026-08-23;2026-09-05;Custo;R$868,44;-264,23\n",
+                encoding="utf-8",
+            )
+            rows, start, end = final.read_google_ads_input(path)
+        self.assertEqual([row["indicador"] for row in rows], list(final.GOOGLE_ADS_INDICATORS))
+        self.assertEqual((start, end), ("2026-08-23", "2026-09-05"))
+        self.assertEqual(rows[-1]["valor"], "R$868,44")
+
     def test_regular_week_does_not_require_monthly_outputs(self) -> None:
         paths = final.expected_output_paths(Path("outputs"), date(2026, 8, 17))
         names = {path.name for path in paths}
@@ -72,6 +91,32 @@ class FinalReportValidationTests(unittest.TestCase):
         self.assertTrue(
             any("detalhes internos de produção" in problem for problem in result.invalid)
         )
+
+    def test_validation_rejects_material_received_framing(self) -> None:
+        week_start = date(2026, 8, 17)
+        with tempfile.TemporaryDirectory() as directory:
+            output_root = Path(directory)
+            paths = final.expected_output_paths(output_root, week_start)
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".csv":
+                    path.write_text("campo\nvalor\n", encoding="utf-8")
+                else:
+                    path.write_text("## Seção\n\nAnálise objetiva.", encoding="utf-8")
+            identification = final.week_output_dir(output_root, week_start) / "01_identificacao_periodo.csv"
+            identification.write_text(
+                "data_inicial,data_final\n2026-08-17,2026-08-23\n",
+                encoding="utf-8",
+            )
+            bad = final.week_output_dir(output_root, week_start) / "generativos" / final.WEEKLY_MARKDOWN_FILES[0]
+            bad.write_text(
+                "## Seção\n\nO material recebido não permitiu analisar o resultado.",
+                encoding="utf-8",
+            )
+
+            result = final.validate_outputs(output_root, week_start)
+
+        self.assertTrue(any("material recebido" in problem for problem in result.invalid))
 
     def test_validation_rejects_returns_above_new_leads(self) -> None:
         week_start = date(2026, 8, 17)

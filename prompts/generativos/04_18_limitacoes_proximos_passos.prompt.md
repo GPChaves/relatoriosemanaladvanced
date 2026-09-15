@@ -5,6 +5,7 @@
 - `PASTA_CSV`: fornecida no envelope da tarefa.
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -12,7 +13,7 @@ Leia todos os CSVs de `PASTA_CSV` e produza `## Limitações e próximos passos`
 
 Escreva como uma análise autoral do gestor. No texto entregue, não mencione arquivos, CSVs, prompts, agentes, inteligência artificial, automação, scripts, APIs nem se algum dado foi fornecido manualmente. Use os bastidores técnicos apenas para apurar os fatos.
 
-Identifique somente limitações que realmente se aplicam, incluindo quando pertinente:
+Identifique somente limitações que realmente se aplicam e mudam a interpretação ou uma decisão. A indisponibilidade de uma métrica, sozinha, não obriga uma ressalva. Exemplos que podem ser pertinentes:
 
 - maturação incompleta dos leads mais recentes;
 - segmentos semanais parciais dentro do mês;
@@ -23,7 +24,7 @@ Identifique somente limitações que realmente se aplicam, incluindo quando pert
 - falta de conteúdo de conversas para análise qualitativa;
 - dados agregados insuficientes para confirmar causalidade ou erros individuais de CRM.
 
-Para cada limitação, associe um próximo passo verificável. Priorize de 4 a 7 ações, indicando o que medir, qual fonte obter ou qual rotina implantar. Evite recomendações genéricas.
+Para cada limitação material, associe um próximo passo verificável somente quando houver uma ação útil. Não imponha quantidade mínima de ações, não sugira obter dados por hábito e evite recomendações genéricas. Escreva a limitação na voz de quem assina o relatório, dizendo o que não pôde ser aferido e o motivo concreto.
 
 Estruture em:
 

@@ -6,6 +6,7 @@
 - `ARQUIVO_SAIDA`: fornecido no envelope da tarefa.
 - `PDF_REFERENCIA_EDITORIAL`: opcional; use somente quando o envelope fornecer um arquivo existente.
 - `AVALIACAO_GESTOR`: opcional; use somente quando o envelope fornecer o arquivo semanal.
+- `POLITICA_REDACAO`: política compartilhada fornecida no envelope; leia e aplique integralmente.
 
 ## Tarefa
 
@@ -33,7 +34,7 @@ Regras:
 - tempo: variação em minutos, somente se disponível;
 - não misture o valor atual e a variação na mesma célula;
 - depois da tabela, escreva um parágrafo curto conectando as mudanças sem afirmar causalidade;
-- se a semana for parcial ou tiver maturação incompleta, destaque a ressalva;
+- se a semana for parcial ou tiver maturação incompleta e isso alterar a comparação, explique a ressalva de forma direta e concreta;
 - não use o PDF como fonte de valores.
 
 ## Público e linguagem

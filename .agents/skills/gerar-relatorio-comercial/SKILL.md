@@ -54,7 +54,7 @@ Depois da geração, compare os nomes de `04_conversao_responsavel.csv` com `09_
 
 ## Gerar os textos em contextos limpos
 
-Leia [references/subagentes-generativos.md](references/subagentes-generativos.md) e `prompts/generativos/manifest.json`.
+Leia [references/subagentes-generativos.md](references/subagentes-generativos.md), `prompts/generativos/manifest.json` e a política compartilhada indicada em `shared_policy`. Forneça essa política a todos os subagentes como `POLITICA_REDACAO`; ela não é uma fonte factual, mas uma regra obrigatória de análise e redação.
 
 Prepare os atendimentos:
 
@@ -77,7 +77,13 @@ Espere todos os agentes, confira que cada saída é UTF-8, não vazia e começa 
 
 Todo texto entregue deve soar como análise autoral do gestor. Não permita menções a arquivos internos, CSV, Markdown, coleta manual, agentes, inteligência artificial, automação, scripts ou APIs. Antes de gerar o PDF, execute o validador e corrija qualquer saída que exponha esses bastidores; não apenas remova a frase isolada se isso prejudicar o sentido.
 
+Aplique o critério central de evidência em todas as seções: ausência de evidência não é evidência de falha. Uma crítica, nota, classificação ou recomendação precisa de sustentação observável. Quando uma pergunta for seguida por áudio, imagem, anexo, documento ou outro conteúdo inacessível que possa conter a resposta, não conclua nem que houve esclarecimento nem que faltou resposta; trate esse ponto como neutro. Só registre dúvida persistente quando houver evidência posterior explícita. O mesmo vale para qualquer conteúdo não examinado.
+
+Escreva na voz de quem assina o relatório. Nunca trate os fatos como “material recebido”, “dados fornecidos” ou “conteúdo disponibilizado”. Inclua uma limitação apenas quando ela mudar a leitura ou a decisão; nesse caso, diga diretamente, em linguagem natural, o que não pôde ser aferido e o motivo concreto. Busque naturalidade profissional no nível 3/10: frases diretas e comuns, sem gírias, floreios ou conclusões mais fortes que os fatos.
+
 Mantenha os textos curtos e leves. Prefira tabelas Markdown para comparações repetitivas e use a prosa somente para interpretação, decisão e ressalvas indispensáveis. Na seção `Diferenças entre consultores`, não analise tempo de resposta e não inclua o bloco `Limites de comparação`.
+
+Se a validação editorial rejeitar uma saída, devolva ao mesmo tipo de subagente as violações encontradas e peça uma nova geração em contexto limpo. Não tente tornar válida uma conclusão sem evidência apenas trocando palavras. Repita no máximo uma vez; se a violação persistir, pare antes do PDF e informe o problema ao usuário.
 
 ## Gerar e entregar o PDF
 

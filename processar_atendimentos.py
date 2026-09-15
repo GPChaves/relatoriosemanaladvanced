@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Sequence
 
+from narrative_policy import narrative_policy_violations
 from relatorio import parse_week_start
 
 
@@ -22,14 +23,17 @@ DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 TEXT_SUFFIXES = {".txt"}
 SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | TEXT_SUFFIXES
-EXPECTED_ATTENDANCE_COUNT = 3
+DEFAULT_ATTENDANCE_COUNT = 3
+SUPPORTED_ATTENDANCE_COUNTS = {3, 4}
 # Compatibilidade com integrações anteriores.
-EXPECTED_IMAGE_COUNT = EXPECTED_ATTENDANCE_COUNT
+EXPECTED_ATTENDANCE_COUNT = DEFAULT_ATTENDANCE_COUNT
+EXPECTED_IMAGE_COUNT = DEFAULT_ATTENDANCE_COUNT
 MANIFEST_NAME = "manifest.json"
 METADATA_NAME = "atendimentos.csv"
 COMBINED_NAME = "04_16_amostragem_qualitativa.md"
-PROMPT_VERSION = "2026-08-29.1"
+PROMPT_VERSION = "2026-09-15.1"
 PROMPT_PATH = ROOT / "prompts" / "generativos" / "04_16_analise_atendimento_individual.prompt.md"
+WRITING_POLICY_PATH = ROOT / "prompts" / "generativos" / "_politica_redacao_e_evidencia.md"
 
 
 class ManualAttendanceError(ValueError):
@@ -110,10 +114,13 @@ Avalie, com linguagem simples para o dono de uma oficina:
 - coerência entre a conversa e o encerramento ou etapa do CRM, quando isso estiver visível.
 
 Regras obrigatórias:
-- Separe fato observado de hipótese. Se a imagem estiver cortada/ilegível ou o texto estiver incompleto, diga exatamente o limite.
+- Separe fato observado de hipótese. Uma lacuna não comprova falha de atendimento.
+- Se uma pergunta for seguida por áudio, imagem, anexo, documento ou outro conteúdo inacessível, não conclua que faltou resposta, não desconte pontos e não recomende correção. Só avalie dúvida persistente quando houver evidência posterior explícita.
+- Mencione um limite apenas quando ele mudar uma conclusão importante; diga diretamente o que não pôde ser aferido e o motivo concreto.
 - Além de CLIENTE_NOME no título, não reproduza telefone, placa, endereço ou outros dados pessoais.
 - Não faça julgamento geral do consultor com base em um único atendimento.
 - Não invente falas, valores, defeitos, serviços ou etapas que não estejam visíveis.
+- Não crie crítica, nota, classificação ou recomendação sem evidência observável.
 - Seja prático, específico e respeitoso.
 
 Entregue em Markdown usando exatamente esta estrutura:
@@ -132,10 +139,10 @@ Um parágrafo curto.
 Uma ação objetiva.
 
 **Exemplo de resposta melhor**
-Uma mensagem curta que o consultor poderia enviar, somente se o contexto visível permitir.
+Uma mensagem curta somente quando houver uma necessidade de melhoria demonstrada. Caso contrário, omita este bloco.
 
 **Limite da análise**
-Uma frase sobre o que a fonte não permite concluir.
+Inclua apenas se o limite mudar a leitura; explique o motivo concreto. Caso contrário, omita este bloco.
 """
 
 
@@ -183,9 +190,10 @@ def find_attendance_sources(directory: Path) -> tuple[Path, ...]:
             key=lambda path: path.name.casefold(),
         )
     )
-    if len(sources) != EXPECTED_ATTENDANCE_COUNT:
+    if len(sources) not in SUPPORTED_ATTENDANCE_COUNTS:
         raise ManualAttendanceError(
-            f"A pasta {directory} deve conter exatamente 3 atendimentos em PNG, JPG ou TXT; "
+            f"A pasta {directory} deve conter 3 atendimentos, ou 4 quando houver amostra extra, "
+            "em PNG, JPG ou TXT; "
             f"foram encontrados {len(sources)}."
         )
     for path in sources:
@@ -224,7 +232,9 @@ def validate_text_source(path: Path) -> None:
         raise ManualAttendanceError(f"A conversa em texto contém bytes nulos: {path}")
 
 
-def load_attendance_metadata(directory: Path) -> dict[int, tuple[str, int]]:
+def load_attendance_metadata(
+    directory: Path, expected_count: int = DEFAULT_ATTENDANCE_COUNT
+) -> dict[int, tuple[str, int]]:
     path = directory / METADATA_NAME
     if not path.is_file():
         raise ManualAttendanceError(
@@ -252,18 +262,19 @@ def load_attendance_metadata(directory: Path) -> dict[int, tuple[str, int]]:
                 f"Atendimento e lead_id devem ser inteiros em {path}."
             ) from exc
         customer_name = str(row.get("cliente_nome") or "").strip()
-        if slot not in {1, 2, 3} or slot in metadata:
+        expected_slots = set(range(1, expected_count + 1))
+        if slot not in expected_slots or slot in metadata:
             raise ManualAttendanceError(
-                f"{path} deve ter uma única linha para cada atendimento 1, 2 e 3."
+                f"{path} deve ter uma única linha para cada atendimento de 1 a {expected_count}."
             )
         if not customer_name or lead_id <= 0:
             raise ManualAttendanceError(
                 f"O atendimento {slot} precisa de cliente_nome e lead_id positivo."
             )
         metadata[slot] = (customer_name, lead_id)
-    if set(metadata) != {1, 2, 3}:
+    if set(metadata) != set(range(1, expected_count + 1)):
         raise ManualAttendanceError(
-            f"{path} deve ter uma única linha para cada atendimento 1, 2 e 3."
+            f"{path} deve ter uma única linha para cada atendimento de 1 a {expected_count}."
         )
     return metadata
 
@@ -284,6 +295,19 @@ def load_individual_prompt() -> str:
     return INDIVIDUAL_PROMPT.strip()
 
 
+def load_writing_policy() -> str:
+    if not WRITING_POLICY_PATH.is_file():
+        raise ManualAttendanceError(
+            f"Política compartilhada de redação não encontrada: {WRITING_POLICY_PATH}"
+        )
+    policy = WRITING_POLICY_PATH.read_text(encoding="utf-8").strip()
+    if not policy:
+        raise ManualAttendanceError(
+            f"Política compartilhada de redação está vazia: {WRITING_POLICY_PATH}"
+        )
+    return policy
+
+
 def prepare_attendances(
     week_start: date,
     *,
@@ -292,10 +316,10 @@ def prepare_attendances(
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     create_output_dirs: bool = True,
 ) -> AttendancePreparation:
-    """Valida três fontes de atendimento e devolve o contrato dos subagentes."""
+    """Valida as fontes de atendimento e devolve o contrato dos subagentes."""
     input_dir = attendance_input_dir(input_root, week_start)
     source_paths = find_attendance_sources(input_dir)
-    metadata = load_attendance_metadata(input_dir)
+    metadata = load_attendance_metadata(input_dir, len(source_paths))
     generative_dir = attendance_output_dir(output_root, week_start)
     analysis_dir = generative_dir / "atendimentos"
     combined_path = generative_dir / COMBINED_NAME
@@ -332,6 +356,7 @@ def preparation_payload(preparation: AttendancePreparation) -> dict[str, object]
         "analysis_dir": str(preparation.analysis_dir),
         "combined_path": str(preparation.combined_path),
         "prompt_path": str(PROMPT_PATH),
+        "writing_policy_path": str(WRITING_POLICY_PATH),
         "prompt_version": PROMPT_VERSION,
         "avaliacao_gestor_path": (
             str(preparation.manager_assessment_path)
@@ -354,7 +379,9 @@ def preparation_payload(preparation: AttendancePreparation) -> dict[str, object]
     }
 
 
-def validate_markdown_file(path: Path, description: str) -> str:
+def validate_markdown_file(
+    path: Path, description: str, *, source_text: str | None = None
+) -> str:
     if not path.is_file():
         raise ManualAttendanceError(f"{description} não encontrado: {path}")
     try:
@@ -365,15 +392,29 @@ def validate_markdown_file(path: Path, description: str) -> str:
         raise ManualAttendanceError(f"{description} está vazio: {path}")
     if "\x00" in text:
         raise ManualAttendanceError(f"{description} contém bytes nulos: {path}")
+    violations = narrative_policy_violations(text, source_text=source_text)
+    if violations:
+        raise ManualAttendanceError(
+            f"{description} viola a política de redação e evidência: "
+            + "; ".join(violations)
+        )
     return text
 
 
 def expected_manifest(preparation: AttendancePreparation) -> dict[str, object]:
     prompt = load_individual_prompt()
+    writing_policy = load_writing_policy()
     analyses = []
     for source in preparation.sources:
+        source_text = (
+            source.path.read_text(encoding="utf-8-sig")
+            if source.source_type == "text"
+            else None
+        )
         analysis = validate_markdown_file(
-            source.analysis_path, f"Análise do atendimento {source.slot}"
+            source.analysis_path,
+            f"Análise do atendimento {source.slot}",
+            source_text=source_text,
         )
         first_line = next(
             (line.strip() for line in analysis.splitlines() if line.strip()), ""
@@ -401,10 +442,11 @@ def expected_manifest(preparation: AttendancePreparation) -> dict[str, object]:
                 f"{consolidated_title!r}."
             )
     return {
-        "version": 5,
+        "version": 6,
         "week_start": preparation.week_start.isoformat(),
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "writing_policy_sha256": sha256_file(WRITING_POLICY_PATH),
         "manager_assessment": (
             {
                 "filename": preparation.manager_assessment_path.name,
@@ -531,11 +573,11 @@ def process_attendances(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Prepara e valida três atendimentos em imagem ou texto analisados por subagentes."
+        description="Prepara e valida três atendimentos, ou quatro com amostra extra, analisados por subagentes."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command, help_text in (
-        ("prepare", "Valida três fontes e imprime tipos, caminhos e hashes para os subagentes."),
+        ("prepare", "Valida as fontes e imprime tipos, caminhos e hashes para os subagentes."),
         ("finalize", "Valida os Markdown gerados e registra o manifesto."),
         ("validate", "Confere se fontes, análises e manifesto continuam atuais."),
     ):

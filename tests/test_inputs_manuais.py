@@ -49,6 +49,29 @@ class ManualResponseTimeTests(unittest.TestCase):
         self.assertTrue(section["manager_context"])
         self.assertTrue(manifest["attendance"]["manager_context_for_consolidation"])
 
+    def test_every_generative_prompt_uses_the_shared_writing_policy(self) -> None:
+        prompt_root = attendance.ROOT / "prompts" / "generativos"
+        manifest = json.loads(
+            (prompt_root / "manifest.json").read_text(encoding="utf-8")
+        )
+        policy_path = prompt_root / manifest["shared_policy"]
+        prompt_names = [
+            item["prompt"]
+            for group in ("weekly", "monthly")
+            for item in manifest[group]
+        ]
+        prompt_names.extend(
+            (
+                manifest["attendance"]["individual_prompt"],
+                manifest["attendance"]["consolidation_prompt"],
+            )
+        )
+
+        self.assertTrue(policy_path.is_file())
+        for prompt_name in prompt_names:
+            prompt_text = (prompt_root / prompt_name).read_text(encoding="utf-8")
+            self.assertIn("POLITICA_REDACAO", prompt_text, prompt_name)
+
     def test_duplicate_responsible_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tempo_resposta.csv"
@@ -206,6 +229,35 @@ class AttendanceInputTests(unittest.TestCase):
                 )
             self.assertFalse((preparation.analysis_dir / attendance.MANIFEST_NAME).exists())
 
+    def test_finalize_rejects_criticism_based_only_on_inaccessible_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
+            input_root = Path(input_directory)
+            output_root = Path(output_directory)
+            week_dir = self.create_texts(input_root)
+            (week_dir / "01.txt").write_text(
+                "Cliente: O carro fica pronto hoje?\n[áudio não transcrito]\n"
+                "Cliente: Obrigado.\n",
+                encoding="utf-8",
+            )
+            preparation = attendance.prepare_attendances(
+                date(2026, 8, 17), input_root=input_root, output_root=output_root
+            )
+            self.write_agent_outputs(preparation)
+            preparation.sources[0].analysis_path.write_text(
+                f"{preparation.sources[0].report_title}\n\n"
+                "O áudio não pôde ser analisado, mas faltou responder à pergunta do cliente.\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                attendance.ManualAttendanceError, "conteúdo inacessível"
+            ):
+                attendance.finalize_attendances(
+                    date(2026, 8, 17),
+                    input_root=input_root,
+                    output_root=output_root,
+                )
+
     def test_administrator_account_is_not_accepted_as_consultant(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tempo_resposta.csv"
@@ -244,6 +296,7 @@ class AttendanceInputTests(unittest.TestCase):
         self.assertIsNone(payload["avaliacao_gestor_path"])
         self.assertEqual(payload["sources"][2]["analysis_path"].split("\\")[-1], "03_analise.md")
         self.assertEqual(payload["sources"][2]["titulo_obrigatorio"], "## Atendimento — Cliente 3 — Lead 65000003")
+        self.assertEqual(payload["writing_policy_path"], str(attendance.WRITING_POLICY_PATH))
 
     def test_finalize_registers_deterministic_manifest_and_validate_reuses_it(self) -> None:
         with tempfile.TemporaryDirectory() as input_directory, tempfile.TemporaryDirectory() as output_directory:
@@ -260,7 +313,11 @@ class AttendanceInputTests(unittest.TestCase):
             manifest_path = finalized.analysis_dir / attendance.MANIFEST_NAME
             first_manifest_text = manifest_path.read_text(encoding="utf-8")
             manifest = json.loads(first_manifest_text)
-            self.assertEqual(manifest["version"], 5)
+            self.assertEqual(manifest["version"], 6)
+            self.assertEqual(
+                manifest["writing_policy_sha256"],
+                attendance.sha256_file(attendance.WRITING_POLICY_PATH),
+            )
             self.assertEqual(len(manifest["sources"]), 3)
             self.assertEqual(len(manifest["analyses"]), 3)
             self.assertEqual(manifest["combined"]["filename"], attendance.COMBINED_NAME)

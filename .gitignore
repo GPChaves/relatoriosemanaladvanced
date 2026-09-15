@@ -5,6 +5,10 @@ __pycache__/
 *.py[cod]
 *.tmp
 
+# Exportações e evidências operacionais colocadas na raiz para processamento local.
+Kommo_ Lead #*.pdf
+milena ou vitor.png
+
 # Dados operacionais fornecidos para cada semana. Preserve apenas os modelos.
 entradas_manuais/tempo_resposta/*
 !entradas_manuais/tempo_resposta/_modelo/
@@ -15,3 +19,4 @@ entradas_manuais/atendimentos/*
 entradas_manuais/avaliacao_gestor/*
 !entradas_manuais/avaliacao_gestor/_modelo/
 !entradas_manuais/avaliacao_gestor/_modelo/**
+entradas_manuais/google_ads/*
